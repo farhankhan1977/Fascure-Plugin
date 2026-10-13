@@ -46,7 +46,7 @@ Until a key is saved in **WHM → Fascure Node.js App**:
 - WHM will not install Passenger or Node.js versions.
 - Customers cannot create, edit, start, stop, delete, or build applications.
 
-The daily check is `/etc/cron.daily/nodeapps-license`. Opening the WHM page also checks when the last successful check is older than 24 hours. If the license server cannot be reached, the last successful check is kept for one extra day.
+The daily check is `/etc/cron.daily/nodeapps-license`. Opening the WHM page also checks when the last successful check is older than 24 hours. If the license server cannot be reached, the last successful check is kept for one extra day. When the license server reports the key expired, revoked, unknown, or assigned to another IP, every running Node.js and Next.js application is stopped.
 
 ## Offer Node.js to customers
 
@@ -82,3 +82,9 @@ The application must listen on `process.env.PORT`. For Next.js, use a custom `se
 - Node.js builds under `/opt/nodeapps/versions`
 - Account applications recorded in the account home, `.nodeapps/apps.json`
 - Apache Passenger configuration for each application, written for that account only
+
+## Trademarks
+
+Node.js is a trademark of the OpenJS Foundation. Next.js is a trademark of Vercel, Inc. cPanel and WHM are trademarks of WebPros International, LLC. Phusion Passenger is a trademark of Phusion Holding B.V.
+
+Fascure Node.js App is an independent hosting plugin. It is not affiliated with, endorsed by, or sponsored by those companies. Their names are used only to say which software this plugin can run.
