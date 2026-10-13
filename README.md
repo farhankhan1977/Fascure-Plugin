@@ -33,9 +33,7 @@ The installer copies the plugin into cPanel, registers **Fascure Node.js App** i
 
 Purchase a license at [https://fascure-hosting.com](https://fascure-hosting.com). After checkout, paste the key in **WHM → Fascure Node.js App**.
 
-Licenses are checked once a day with the license server at `https://plugin.fascure-hosting.com`. See `license-server/README.md`.
-
-A license is bound to the public IP of the cPanel server. The plugin sends its key to `/api/verify.php`. The license server compares that connection's IP and the expiry date with the license. A different IP, an expired license, or a revoked license turns the plugin off.
+The license server at `https://plugin.fascure-hosting.com` must stay online. The plugin verifies the license key once a day, and it keeps working only while that check succeeds. The license server compares that connection's IP and the expiry date with the license. A different IP, an expired license, or a revoked license turns the plugin off.
 
 | Plan | Accounts | Applications on each account |
 | --- | --- | --- |
@@ -47,8 +45,6 @@ Until a key is saved in **WHM → Fascure Node.js App**:
 
 - WHM will not install Passenger or Node.js versions.
 - Customers cannot create, edit, start, stop, delete, or build applications.
-
-The daily check is `/etc/cron.daily/nodeapps-license`. Opening the WHM page also checks when the last successful check is older than 24 hours. If the license server cannot be reached, the last successful check is kept for one extra day. When the license server reports the key expired, revoked, unknown, or assigned to another IP, every running Node.js and Next.js application is stopped.
 
 ## Offer Node.js to customers
 
