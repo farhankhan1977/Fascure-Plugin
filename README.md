@@ -31,7 +31,9 @@ The installer copies the plugin into cPanel, registers **Fascure Node.js App** i
 
 ## License
 
-Licenses are issued by the Fascure license server and checked once a day. The application is in `license-server/` and is meant to run at `https://plugin.fascure-hosting.com`. See `license-server/README.md`.
+Purchase a license at [https://fascure-hosting.com](https://fascure-hosting.com). After checkout, paste the key in **WHM → Fascure Node.js App**.
+
+Licenses are checked once a day with the license server at `https://plugin.fascure-hosting.com`. See `license-server/README.md`.
 
 A license is bound to the public IP of the cPanel server. The plugin sends its key to `/api/verify.php`. The license server compares that connection's IP and the expiry date with the license. A different IP, an expired license, or a revoked license turns the plugin off.
 

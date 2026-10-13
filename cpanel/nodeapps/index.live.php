@@ -137,9 +137,24 @@ if (!$apps_ok && $error === '' && $app_errors) {
 }
 
 $licensed = is_array($status) && !empty($status['licensed']);
-$license_message = (is_array($status) && !empty($status['license_message']))
-    ? $status['license_message']
-    : 'Fascure Node.js App is limited until a license key is entered in WHM.';
+$apps_used = (is_array($status) && isset($status['apps_used'])) ? (int) $status['apps_used'] : 0;
+$app_limit = (is_array($status) && isset($status['apps'])) ? (int) $status['apps'] : 0;
+$plan_label = (is_array($status) && !empty($status['plan_label'])) ? $status['plan_label'] : '';
+$expires = (is_array($status) && !empty($status['license_expires'])) ? $status['license_expires'] : '';
+if ($licensed) {
+    if ($app_limit > 0) {
+        $license_message = $plan_label . ' plan. This account can create ' . $app_limit . ' application' . ($app_limit === 1 ? '' : 's') . '. Using ' . $apps_used . ' of ' . $app_limit . '.';
+    } else {
+        $license_message = $plan_label . ' plan. This account can create unlimited applications. Using ' . $apps_used . '.';
+    }
+    if ($expires !== '') {
+        $license_message .= ' Expires ' . $expires . '.';
+    }
+} else {
+    $license_message = (is_array($status) && !empty($status['license_message']))
+        ? $status['license_message']
+        : 'Fascure Node.js App is limited until a license key is entered in WHM.';
+}
 $running = false;
 foreach ($apps as $app) {
     if (!empty($app['job']['running'])) {
@@ -177,9 +192,9 @@ foreach ($apps as $app) {
 <?php if ($notice !== '') { ?><div class="banner ok"><?php print h($notice); ?></div><?php } ?>
 <?php if ($error !== '') { ?><div class="banner bad"><?php print h($error); ?></div><?php } ?>
 <?php if (!$licensed) { ?>
-<div class="banner bad"><?php print h($license_message); ?> Application changes stay turned off until the server administrator saves a valid key.</div>
+<div class="banner bad"><?php print h($license_message); ?> Application changes stay turned off until the server administrator saves a valid key. Purchase a license at <a href="https://fascure-hosting.com" target="_blank" rel="noopener">https://fascure-hosting.com</a>.</div>
 <?php } else { ?>
-<div class="banner ok"><?php print h($license_message); ?> This account is using <?php print h(isset($status['apps_used']) ? $status['apps_used'] : 0); ?> application(s).</div>
+<div class="banner ok"><?php print h($license_message); ?> Purchase or renew at <a href="https://fascure-hosting.com" target="_blank" rel="noopener">https://fascure-hosting.com</a>.</div>
 <?php } ?>
 <?php if ($licensed && empty($status['passenger'])) { ?>
 <div class="banner bad">Passenger is not installed yet. Install it from WHM under Fascure Node.js App before applications can answer web requests.</div>
@@ -252,6 +267,9 @@ foreach ($apps as $app) {
 <div class="card">
 <h3><?php print h($app['id']); ?> <span class="muted"><?php print h($app['type']); ?> · <?php print !empty($app['enabled']) ? 'running' : 'stopped'; ?></span></h3>
 <p><a href="<?php print h($href); ?>" target="_blank"><?php print h($href); ?></a></p>
+<?php if (!empty($app['stopped_reason']) && $app['stopped_reason'] === 'license') { ?>
+<p class="muted">This application was stopped because the server license is expired or no longer valid for this IP.</p>
+<?php } ?>
 <?php if (!$licensed) { ?>
 <p class="muted">Node.js <?php print h($app['version']); ?> · <?php print h($app['root']); ?>. Changes are unavailable until WHM has a license key.</p>
 </div>

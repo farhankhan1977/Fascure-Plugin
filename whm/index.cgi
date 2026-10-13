@@ -101,7 +101,7 @@ print '<div class="ok">' . esc($notice) . '</div>' if $notice ne '';
 print '<div class="bad">' . esc($error) . '</div>' if $error ne '';
 
 print '<div class="card"><h3>License key</h3>';
-print '<p>This plugin checks its license once a day at <strong>plugin.fascure-hosting.com</strong>. The license is valid only for the public IP that contacts the license server, and only until its expiry date.</p>';
+print '<p>This plugin checks its license once a day at <strong>plugin.fascure-hosting.com</strong>. The license is valid only for the public IP that contacts the license server, and only until its expiry date. Purchase a license at <a href="https://fascure-hosting.com" target="_blank" rel="noopener">https://fascure-hosting.com</a>.</p>';
 print $license->{licensed}
     ? '<div class="ok">' . esc( $license->{message} ) . '</div>'
     : '<div class="bad">' . esc( $license->{message} ) . '</div>';
