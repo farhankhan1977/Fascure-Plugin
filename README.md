@@ -60,25 +60,35 @@ After the license key is saved:
 
 ## Where to put application files
 
-Upload the Node.js or Next.js project into the account home directory. Do not upload the project into `public_html`. `public_html` is only the website address. The plugin keeps the application files beside it and attaches a URL such as `/node-test`.
+Node.js and Next.js use the same place on the account. Upload the project into a folder under the account home, next to `public_html`. Do not upload the project into `public_html`.
 
-For a cPanel user named `username`, the test application lives here:
+`public_html` is only the website address. The plugin creates a URL folder there, such as `public_html/node-test/`, and leaves the application source in `apps/`. The folder name under `apps/` is the application root you type in cPanel. `apps/hello` is only the Node.js test. A Next.js site uses its own folder, such as `apps/my-site`.
 
-```text
-/home/username/apps/hello/app.js
-/home/username/apps/hello/package.json
-```
-
-In **cPanel → File Manager**, open the home folder (the folder that contains `public_html`), then open `apps/hello`. The same folder over SFTP or FTP is `apps/hello` directly under the account home.
+For a cPanel user named `username`:
 
 ```text
 /home/username/
-├── apps/hello/              ← upload the Node.js project here
+├── apps/hello/              ← Node.js test project (startup file app.js)
 │   ├── app.js
 │   └── package.json
+├── apps/my-site/            ← Next.js project (startup file server.js)
+│   ├── server.js
+│   ├── package.json
+│   └── app/ or pages/
 └── public_html/             ← normal website files stay here
-    └── node-test/           ← URL folder created by the plugin; leave the app source out of it
+    ├── node-test/           ← URL folder for the Node.js test; leave the source out of it
+    └── my-site/             ← URL folder for Next.js; leave the source out of it
 ```
+
+In **cPanel → File Manager**, open the home folder (the folder that contains `public_html`), then open `apps`. Over SFTP or FTP, `apps` is directly under the account home.
+
+| | Node.js test | Next.js |
+| --- | --- | --- |
+| Upload to | `/home/username/apps/hello/` | `/home/username/apps/my-site/` |
+| Application root in cPanel | `apps/hello` | `apps/my-site` |
+| Startup file | `app.js` | `server.js` |
+| After create | Run NPM Install, then Restart | Run NPM Install, then Run next build, then Restart |
+| Leave empty | `public_html/node-test/` | `public_html/my-site/` |
 
 ## Run the test application
 
@@ -107,11 +117,47 @@ Click **Stop App** to take it offline. Click **Start App** to publish it again. 
 
 ## Run a Next.js application
 
-1. Upload the Next.js project to an application root such as `/home/username/apps/my-site/`.
-2. Add a `server.js` that listens on `process.env.PORT`.
-3. Create the application with type **Next.js**, root `apps/my-site`, the URL you want, and startup file `server.js`.
-4. Click **Run NPM Install**, then **Run next build**, then **Restart**.
-5. Open the application URL.
+The files go in the same kind of folder as the Node.js test. Use a different name so the two projects stay separate. Do not copy `examples/hello` into the Next.js folder, and do not put the Next.js project in `public_html`.
+
+1. Upload the Next.js project to `/home/username/apps/my-site/`.
+2. Add `server.js` in that same folder. It must listen on `process.env.PORT`:
+
+```js
+const { createServer } = require('http');
+const { parse } = require('url');
+const next = require('next');
+
+const port = process.env.PORT || 3000;
+const app = next({ dev: false, dir: __dirname });
+const handle = app.getRequestHandler();
+
+app.prepare().then(() => {
+  createServer((req, res) => {
+    handle(req, res, parse(req.url, true));
+  }).listen(port);
+});
+```
+
+3. Open **cPanel → Software → Fascure Node.js App** and create the application with these values:
+
+| Field | Value |
+| --- | --- |
+| Application name | `my-site` |
+| Application type | Next.js |
+| Node.js version | the installed version, such as `v22.23.3` |
+| Application mode | Production |
+| Application root | `apps/my-site` |
+| Domain | the account domain |
+| Application URL | `/my-site` |
+| Startup file | `server.js` |
+
+4. Leave **Create starter files** unchecked when `package.json` is already in `apps/my-site`.
+5. Open the application card and click **Run NPM Install**.
+6. Click **Run next build**.
+7. Click **Restart**.
+8. Open `https://your-domain.example/my-site/`.
+
+The URL folder `public_html/my-site/` is created by the plugin. It is not the place to upload `server.js`, `package.json`, or the `app` or `pages` directory.
 
 ## Uninstall
 
