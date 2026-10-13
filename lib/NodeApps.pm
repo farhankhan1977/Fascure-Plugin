@@ -103,6 +103,12 @@ sub system_status {
         }
     }
     my $license = license_status();
+    if ( $> != 0 ) {
+        my ( $rc, $text ) = _run_quota(1);
+        if ( $rc == 0 && $text =~ /"tenants_used":(\d+)/ ) {
+            $license->{tenants_used} = $1;
+        }
+    }
     return {
         passenger => $passenger,
         passenger_detail => $detail,
@@ -113,6 +119,12 @@ sub system_status {
         licensed  => $license->{licensed},
         license_host => $license->{host},
         license_message => $license->{message},
+        plan      => $license->{plan} || '',
+        plan_label => $license->{plan_label} || '',
+        tenants   => $license->{tenants} || 0,
+        apps      => $license->{apps} || 0,
+        tenants_used => $license->{tenants_used} || 0,
+        apps_used => $self->_local_app_count,
     };
 }
 
@@ -152,11 +164,23 @@ sub license_status {
         $err =~ s/\s+\z//;
         return { licensed => 0, host => $host, message => $err };
     }
+    my $tenants_used = 0;
+    if ( $> == 0 ) {
+        my $inv = eval { license_inventory() };
+        $tenants_used = $inv->{tenants_used} || 0 if $inv;
+    }
+    my $account_label = $info->{tenants} ? $info->{tenants} : 'unlimited';
+    my $app_label     = $info->{apps}     ? $info->{apps}     : 'unlimited';
     return {
-        licensed => 1,
-        host     => $host,
-        message  => "Licensed for $host.",
-        expires  => $info->{exp} || 0,
+        licensed   => 1,
+        host       => $host,
+        plan       => $info->{plan},
+        plan_label => $info->{plan_label},
+        tenants    => $info->{tenants},
+        apps       => $info->{apps},
+        tenants_used => $tenants_used,
+        expires    => $info->{exp} || 0,
+        message    => "Licensed for $host. $info->{plan_label} plan: $account_label accounts, $app_label applications on each account.",
     };
 }
 
@@ -185,21 +209,44 @@ sub _license_parse {
     $token = '' unless defined $token;
     $token =~ s/\s+//g;
     die "Enter a license key.\n" if $token eq '';
-    die "License key is not valid.\n" if length($token) > 8000;
-    die "License key is not valid.\n" unless $token =~ /\AFSC1\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)\z/;
-    my $payload = _b64url_decode($1);
-    my $sig     = _b64url_decode($2);
-    die "License key is not valid.\n" unless defined $payload && defined $sig && length($sig) > 0;
-    _license_verify_signature( $payload, $sig ) or die "License key is not valid.\n";
+    die "License key is not valid.\n" if length($token) > 16000;
+    die "This license key is from an older plugin. Generate a new key.\n" if $token =~ /\AFSC1\./;
+    die "License key is not valid.\n" unless $token =~ /\AFSC2\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)\z/;
+    my $blob = _b64url_decode($1);
+    my $sig  = _b64url_decode($2);
+    die "License key is not valid.\n" unless defined $blob && defined $sig && length($sig) > 0;
+    _license_verify_signature( $blob, $sig ) or die "License key is not valid.\n";
+    my $payload = _license_decrypt($blob) or die "License key is not valid.\n";
     my $data = eval { JSON::PP->new->utf8(0)->decode($payload) };
     die "License key is not valid.\n" unless ref $data eq 'HASH';
     die "License key is not valid.\n" unless ( $data->{product} || '' ) eq 'fascure-nodeapps';
+    my $plan = _plan_spec( $data->{plan} ) or die "License plan is not valid.\n";
+    die "License plan limits do not match.\n"
+        if ( $data->{tenants} || 0 ) != $plan->{tenants} || ( $data->{apps} || 0 ) != $plan->{apps};
     my $host = license_hostname();
     my $key_host = $data->{host} || '';
     die "This license key is for a different server.\n" if lc($key_host) ne lc($host);
     my $exp = $data->{exp} || 0;
     die "This license key has expired.\n" if $exp =~ /\A\d+\z/ && $exp > 0 && $exp < time;
-    return { host => $host, exp => $exp };
+    return {
+        host       => $host,
+        exp        => $exp,
+        plan       => $plan->{id},
+        plan_label => $plan->{label},
+        tenants    => $plan->{tenants},
+        apps       => $plan->{apps},
+    };
+}
+
+sub _plan_spec {
+    my ($id) = @_;
+    my %plans = (
+        basic => { id => 'basic', label => 'Basic', tenants => 1, apps => 1 },
+        standard => { id => 'standard', label => 'Standard', tenants => 10, apps => 3 },
+        enterprise => { id => 'enterprise', label => 'Enterprise', tenants => 0, apps => 0 },
+    );
+    return $plans{$id} if defined $id && $plans{$id};
+    return;
 }
 
 sub _license_verify_signature {
@@ -240,6 +287,154 @@ sub _b64url_decode {
     my $raw = eval { decode_base64($text) };
     return if !defined $raw || $raw eq '';
     return $raw;
+}
+
+sub _read_hex_key {
+    my ($path) = @_;
+    return unless -r $path;
+    open my $fh, '<', $path or return;
+    my $line = <$fh> // '';
+    close $fh;
+    chomp $line;
+    $line =~ s/\s+//g;
+    return lc $line if $line =~ /\A[0-9a-f]{64}\z/;
+    return;
+}
+
+sub _license_decrypt {
+    my ($blob) = @_;
+    return if !defined $blob || length($blob) < 64;
+    my $iv     = substr( $blob, 0, 16 );
+    my $mac    = substr( $blob, 16, 32 );
+    my $cipher = substr( $blob, 48 );
+    return if $cipher eq '';
+    my $aes  = _read_hex_key('/usr/local/nodeapps/lib/license-aes.hex')  or return;
+    my $hmac = _read_hex_key('/usr/local/nodeapps/lib/license-hmac.hex') or return;
+    my $dir  = tempdir( 'nodeapps-lic-XXXX', DIR => '/tmp', CLEANUP => 1 );
+    open my $mf, '>', "$dir/mac-in" or return;
+    binmode $mf;
+    print {$mf} $iv, $cipher;
+    close $mf;
+    open my $cf, '>', "$dir/cipher" or return;
+    binmode $cf;
+    print {$cf} $cipher;
+    close $cf;
+    local $ENV{PATH} = '/usr/bin:/bin';
+    open my $oldout, '>&', \*STDOUT or return;
+    open my $olderr, '>&', \*STDERR or return;
+    open STDOUT, '>', '/dev/null';
+    open STDERR, '>', '/dev/null';
+    my $mac_rc = system(
+        '/usr/bin/openssl', 'dgst', '-sha256', '-mac', 'HMAC', '-macopt', "hexkey:$hmac",
+        '-binary', '-out', "$dir/mac", "$dir/mac-in"
+    );
+    my $plain = '';
+    my $dec_rc = 1;
+    if ( $mac_rc == 0 ) {
+        open my $got, '<', "$dir/mac" or do { open STDOUT, '>&', $oldout; open STDERR, '>&', $olderr; return };
+        binmode $got;
+        local $/;
+        my $have = <$got> // '';
+        close $got;
+        if ( length($have) == length($mac) && $have eq $mac ) {
+            my $iv_hex = unpack( 'H*', $iv );
+            $dec_rc = system(
+                '/usr/bin/openssl', 'enc', '-aes-256-cbc', '-d', '-K', $aes, '-iv', $iv_hex,
+                '-nosalt', '-in', "$dir/cipher", '-out', "$dir/plain"
+            );
+            if ( $dec_rc == 0 && open my $pf, '<', "$dir/plain" ) {
+                local $/;
+                $plain = <$pf> // '';
+                close $pf;
+            }
+        }
+    }
+    open STDOUT, '>&', $oldout;
+    open STDERR, '>&', $olderr;
+    return $plain eq '' ? undef : $plain;
+}
+
+sub license_inventory {
+    die "License inventory requires root.\n" if $> != 0;
+    my %by_user;
+    my $tenants = 0;
+    my $dir = '/var/cpanel/users';
+    opendir my $dh, $dir or return { tenants_used => 0, by_user => {} };
+    foreach my $name ( readdir $dh ) {
+        next if $name =~ /^\./ || $name eq 'system';
+        my $user = _untaint_user($name) or next;
+        my $home = eval { _account_home($user) } or next;
+        my $file = File::Spec->catfile( $home, '.nodeapps', 'apps.json' );
+        next unless -f $file;
+        my $data = _read_json($file) || next;
+        my $count = scalar @{ $data->{apps} || [] };
+        next if $count < 1;
+        $by_user{$user} = $count;
+        $tenants++;
+    }
+    closedir $dh;
+    return { tenants_used => $tenants, by_user => \%by_user };
+}
+
+sub assert_can_create {
+    my ($user) = @_;
+    die "License limits can only be checked as root.\n" if $> != 0;
+    $user = _untaint_user($user) or die "Invalid account.\n";
+    my $status = license_status();
+    die $status->{message} . "\n" unless $status->{licensed};
+    my $inv  = license_inventory();
+    my $mine = $inv->{by_user}{$user} || 0;
+    if ( $status->{apps} > 0 && $mine >= $status->{apps} ) {
+        die "The $status->{plan_label} license allows $status->{apps} application(s) on each account.\n";
+    }
+    if ( $status->{tenants} > 0 && $mine == 0 && $inv->{tenants_used} >= $status->{tenants} ) {
+        die "The $status->{plan_label} license allows Node.js on $status->{tenants} account(s).\n";
+    }
+    return 1;
+}
+
+sub _local_app_count {
+    my ($self) = @_;
+    my $data = eval { $self->_load };
+    return 0 unless $data && ref $data->{apps} eq 'ARRAY';
+    return scalar @{ $data->{apps} };
+}
+
+sub _enforce_plan {
+    my ($self) = @_;
+    if ( $> == 0 ) {
+        assert_can_create( $self->{user} );
+        return 1;
+    }
+    my ( $rc, $text ) = _run_quota();
+    return 1 if $rc == 0;
+    $text =~ s/\s+\z//;
+    die( $text ne '' ? "$text\n" : "The license limit was reached.\n" );
+}
+
+sub _run_quota {
+    my ($usage) = @_;
+    my @cmd = ( '/usr/bin/sudo', '-n', '/usr/local/nodeapps/bin/nodeapps-quota' );
+    push @cmd, '--usage' if $usage;
+    my $dir = tempdir( 'nodeapps-quota-XXXX', DIR => '/tmp', CLEANUP => 1 );
+    local $ENV{PATH} = '/usr/bin:/bin';
+    my $pid = fork();
+    die "Could not check the license limit.\n" unless defined $pid;
+    if ( $pid == 0 ) {
+        open STDOUT, '>', "$dir/out" or exit 127;
+        open STDERR, '>&', \*STDOUT or exit 127;
+        exec { $cmd[0] } @cmd;
+        exit 127;
+    }
+    waitpid $pid, 0;
+    my $rc = $? >> 8;
+    my $text = '';
+    if ( open my $fh, '<', "$dir/out" ) {
+        local $/;
+        $text = <$fh> // '';
+        close $fh;
+    }
+    return ( $rc, $text );
 }
 
 sub list_domains {
@@ -312,6 +507,7 @@ sub create_app {
     my $lock = $self->_lock;
     my $data = $self->_load;
     die "An application named $id already exists.\n" if $self->_find( $data, $id );
+    $self->_enforce_plan;
     foreach my $other ( @{ $data->{apps} } ) {
         if ( $other->{domain} eq $domain && $other->{uri} eq $uri ) {
             die "Another application already uses $domain$uri.\n";

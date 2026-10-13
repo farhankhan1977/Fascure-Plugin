@@ -29,20 +29,30 @@ bash cpanel-install.sh
 
 The installer copies the plugin into cPanel, registers **Fascure Node.js App** in WHM and in the Jupiter theme, and allows each hosting account to publish its own Apache Passenger configuration.
 
-## Enter the license key
+## License plans
 
-1. Open **WHM → Fascure Node.js App**.
-2. Copy the hostname shown on that page.
-3. Paste the license key issued for that hostname and choose **Save license key**.
+Each key is encrypted and signed for one server hostname. The plugin reads the plan from the key.
 
-Until that key is saved:
+| Plan | Accounts | Applications on each account |
+| --- | --- | --- |
+| Basic | 1 | 1 |
+| Standard | 10 | 3 |
+| Enterprise | unlimited | unlimited |
+
+Until a key is saved in **WHM → Fascure Node.js App**:
 
 - WHM will not install Passenger or Node.js versions.
-- Customers cannot create, edit, start, stop, delete, or build applications in **cPanel → Software → Fascure Node.js App**.
+- Customers cannot create, edit, start, stop, delete, or build applications.
 
-A key works only on the hostname it was issued for. Changing the server hostname requires a new key.
+A key works only on the hostname it was issued for. Changing the server hostname requires a new key. Creating another application is refused when that account, or the number of accounts, is already at the plan limit.
 
-The signing key used to create license keys is not in this repository.
+Generate a key on the machine that holds the private signing key:
+
+```bash
+FASCURE_LICENSE_PRIVATE_KEY=/path/to/private.pem tools/keygen.sh --host ns10.example.com --plan standard
+```
+
+The private signing key is not in this repository. `lib/license-aes.hex` and `lib/license-hmac.hex` let a licensed server decrypt the plan stored inside the key. They do not let anyone create a new key.
 
 ## Offer Node.js to customers
 

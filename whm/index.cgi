@@ -108,7 +108,7 @@ print $license->{licensed}
 print <<'HTML';
 <form method="post">
 <input type="hidden" name="action" value="license">
-<p><input type="text" name="key" placeholder="FSC1...." style="width:100%" required></p>
+<p><input type="text" name="key" placeholder="FSC2...." style="width:100%" required></p>
 <button type="submit">Save license key</button>
 </form>
 </div>

@@ -1,0 +1,41 @@
+#!/usr/local/cpanel/3rdparty/bin/perl
+use strict;
+use warnings;
+
+use lib '/usr/local/nodeapps/lib';
+use NodeApps;
+
+die "This helper must run as root.\n" if $> != 0;
+
+my $usage = 0;
+my $user  = $ENV{SUDO_USER} || '';
+foreach my $arg (@ARGV) {
+    if ( $arg eq '--usage' ) {
+        $usage = 1;
+        next;
+    }
+    if ( $arg =~ /\A--user=([a-z_][a-z0-9_-]{0,31})\z/ ) {
+        $user = $1 if $user eq '' || $user eq 'root';
+    }
+}
+if ( $user eq '' || $user eq 'root' ) {
+    die "Run this through sudo from the hosting account.\n";
+}
+$user =~ /\A([a-z_][a-z0-9_-]{0,31})\z/ or die "Invalid account.\n";
+$user = $1;
+
+if ($usage) {
+    my $inv  = NodeApps::license_inventory();
+    my $apps = $inv->{by_user}{$user} || 0;
+    print '{"tenants_used":' . ( $inv->{tenants_used} || 0 ) . ',"apps_used":' . $apps . "}\n";
+    exit 0;
+}
+
+eval { NodeApps::assert_can_create($user) };
+if ($@) {
+    my $err = $@;
+    $err =~ s/\s+\z//;
+    print "$err\n";
+    exit 1;
+}
+exit 0;

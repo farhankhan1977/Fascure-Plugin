@@ -178,6 +178,8 @@ foreach ($apps as $app) {
 <?php if ($error !== '') { ?><div class="banner bad"><?php print h($error); ?></div><?php } ?>
 <?php if (!$licensed) { ?>
 <div class="banner bad"><?php print h($license_message); ?> Application changes stay turned off until the server administrator saves a valid key.</div>
+<?php } else { ?>
+<div class="banner ok"><?php print h($license_message); ?> This account is using <?php print h(isset($status['apps_used']) ? $status['apps_used'] : 0); ?> application(s).</div>
 <?php } ?>
 <?php if ($licensed && empty($status['passenger'])) { ?>
 <div class="banner bad">Passenger is not installed yet. Install it from WHM under Fascure Node.js App before applications can answer web requests.</div>

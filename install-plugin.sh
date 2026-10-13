@@ -14,10 +14,15 @@ fi
 install -d -m 0755 /usr/local/nodeapps/lib /usr/local/nodeapps/bin /opt/nodeapps/versions
 install -m 0644 "$SRC/lib/NodeApps.pm" /usr/local/nodeapps/lib/NodeApps.pm
 install -m 0644 "$SRC/lib/license-public.pem" /usr/local/nodeapps/lib/license-public.pem
+install -m 0644 "$SRC/lib/license-aes.hex" /usr/local/nodeapps/lib/license-aes.hex
+install -m 0644 "$SRC/lib/license-hmac.hex" /usr/local/nodeapps/lib/license-hmac.hex
 install -m 0755 "$SRC/bin/nodeapps-apply" /usr/local/nodeapps/bin/nodeapps-apply
+install -m 0755 "$SRC/bin/nodeapps-quota" /usr/local/nodeapps/bin/nodeapps-quota
 cat > /etc/sudoers.d/nodeapps <<'EOF'
 Defaults!/usr/local/nodeapps/bin/nodeapps-apply !requiretty
+Defaults!/usr/local/nodeapps/bin/nodeapps-quota !requiretty
 ALL ALL=(root) NOPASSWD: /usr/local/nodeapps/bin/nodeapps-apply
+ALL ALL=(root) NOPASSWD: /usr/local/nodeapps/bin/nodeapps-quota
 EOF
 chmod 0440 /etc/sudoers.d/nodeapps
 visudo -cf /etc/sudoers.d/nodeapps
