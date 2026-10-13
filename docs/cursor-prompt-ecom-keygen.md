@@ -4,52 +4,38 @@ Paste the following into the Cursor chat for the store application.
 
 ---
 
-Add Fascure Node.js App license keys to this store. The store already sells products in a WHMCS-style flow. After a paid order is complete, or when a free Basic order is placed, generate one license key and show it in the client area and the order email. Do not build a cPanel plugin. Only add key generation and delivery on this e-commerce server.
+Add Fascure Node.js App license sales to this store. Do not build a cPanel plugin and do not generate license keys locally. The license server at https://plugin.fascure-hosting.com issues the keys.
+
+After a paid order is complete, or when a free Basic order is placed, call the license server and save the returned license key on the order. Show it in the client area and the order email.
 
 ## Products
 
-Create or map three products:
+- Basic, price 0. The license server allows 1 hosting account and 1 Node.js application.
+- Standard. The license server allows 10 hosting accounts and 3 Node.js applications on each account.
+- Enterprise. The license server allows unlimited accounts and applications.
 
-- Basic, price 0. Limits: 1 hosting account, 1 Node.js application on that account.
-- Standard. Limits: 10 hosting accounts, 3 Node.js applications on each account.
-- Enterprise. Limits: unlimited hosting accounts and unlimited applications. Encode unlimited as the number 0.
+Checkout must collect the customer's cPanel server public IP. Validate it with a normal IP check. One license works only for that IP. Store the IP on the order. If the product is a subscription, send the period length in days. Otherwise send 365, or the store's own billing period.
 
-Checkout must collect the customer's cPanel server hostname, such as `ns10.example.com`. Reject hostnames that are not letters, digits, dots, and hyphens. One purchased key works only on that hostname. Store the hostname on the order.
+## API
 
-If the product is a subscription, set `exp` to the subscription period end as a unix timestamp. Otherwise set `exp` to 0, which means the key does not expire.
+The store server calls this with a bearer token. Keep the token in the server environment as FASCURE_LICENSE_API_TOKEN. Never send it to the browser and never commit it.
 
-## Secrets
+POST https://plugin.fascure-hosting.com/api/manage.php
+Authorization: Bearer <token>
+Content-Type: application/json
 
-Read these from the server environment. Never commit them and never send them to the browser.
+New license:
 
-- `FASCURE_LICENSE_PRIVATE_KEY`: absolute path to the RSA private PEM used to sign keys. The operator will place this file on the store server. Do not generate a new keypair. A new keypair would not match the plugin.
-- AES key hex: `bbc4b8e19112ed6c354b2250745cf7b989b7103b3c01bf79c0b703133707c9cc`
-- HMAC key hex: `4b2cd60a6d92c6b333fe4e60c5b3551e452d5573a49579439f9cd4d424496a6e`
+{"action":"generate","plan":"standard","ip":"46.151.210.123","days":365,"note":"order 1001"}
 
-The AES and HMAC values are decryption material already shipped in the plugin. The private key is what stops a customer from making their own Enterprise key. If the private key file is missing, fail the order with a clear admin error and do not mark the license as delivered.
+Renew the same key at the next billing date. Send the new IP if the customer moved servers:
 
-## Key format
+{"action":"renew","license_key":"FSCP-ABCD-EFGH-JKLM-NPQR","ip":"46.151.210.123","days":365}
 
-Build this JSON with the fields in this order and no extra whitespace:
+plan is basic, standard, or enterprise. days is 1 through 3650. expires_at in `YYYY-MM-DD HH:MM:SS` can be sent instead of days.
 
-`{"product":"fascure-nodeapps","plan":"standard","host":"hostname","tenants":10,"apps":3,"exp":0,"id":"16hexchars"}`
+A successful generate response includes license_key, plan, ip, and expires_at. Save license_key on the order. Show the customer this instruction: in WHM open Fascure Node.js App, paste the key, and choose Save license key.
 
-`plan` is `basic`, `standard`, or `enterprise`. `tenants` and `apps` must be exactly the numbers for that plan. `id` is a random 8-byte hex string, unique per key.
+If the API returns 400 or 401, mark the license as not delivered and show the message to the admin. Do not invent a key.
 
-Encrypt and sign with OpenSSL:
-
-1. AES-256-CBC encrypt the JSON with the AES hex key, a random 16-byte IV, and `-nosalt`. Do not prefix the ciphertext with `Salted__`.
-2. HMAC-SHA256 the raw IV bytes followed by the raw ciphertext, using the HMAC hex key. The MAC is 32 bytes.
-3. Build the blob as raw IV (16 bytes) + raw MAC (32 bytes) + raw ciphertext.
-4. RSA-SHA256 sign that blob with the private PEM (`openssl dgst -sha256 -sign`).
-5. Return one line: `FSC2.` + base64url(blob) + `.` + base64url(signature).
-
-base64url means standard base64 with `+` replaced by `-`, `/` replaced by `_`, and `=` padding removed.
-
-Save the resulting string on the order. Show it once in the client area with the hostname and plan name, and include a short instruction: in WHM open Fascure Node.js App, paste the key, and choose Save license key.
-
-Do not put the plan limits in a separate unsigned field that the plugin would trust. The plugin decrypts this key and refuses limits that do not match the plan name.
-
-## Check
-
-Add an admin-only action that generates a Basic key for a hostname you type and prints the FSC2 string. Confirm the string starts with `FSC2.` and contains exactly one more dot. Do not log the private key or the AES and HMAC secrets.
+The token's generation limits are managed in the license server admin UI. This store only needs to call the API.

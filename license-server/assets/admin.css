@@ -1,0 +1,17 @@
+body { margin: 0; font-family: Arial, sans-serif; color: #1f2933; background: #f4f7f6; }
+.top { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 24px; background: #14301a; color: #fff; }
+.top a { color: #d8f3dc; margin-left: 14px; text-decoration: none; }
+main { max-width: 980px; margin: 0 auto; padding: 24px; }
+h1 { margin-top: 0; font-size: 24px; }
+.card { background: #fff; border: 1px solid #d5dde5; border-radius: 8px; padding: 16px; margin: 0 0 16px; }
+label { display: block; font-weight: 600; margin: 10px 0 4px; }
+input, select { width: 100%; max-width: 420px; box-sizing: border-box; padding: 8px; border: 1px solid #b7c3ce; border-radius: 4px; }
+button, .btn { background: #1b5e20; color: #fff; border: 0; border-radius: 4px; padding: 8px 12px; cursor: pointer; text-decoration: none; display: inline-block; }
+.danger { background: #b71c1c; }
+.ok { background: #e8f5e9; padding: 10px; border-radius: 6px; }
+.bad { background: #fdecea; padding: 10px; border-radius: 6px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 8px; border-bottom: 1px solid #e4ebf1; vertical-align: top; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; }
+.login { max-width: 420px; margin: 10vh auto; }
+code { background: #f4f7f6; padding: 2px 4px; border-radius: 4px; }

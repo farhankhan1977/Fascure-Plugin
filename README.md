@@ -29,9 +29,11 @@ bash cpanel-install.sh
 
 The installer copies the plugin into cPanel, registers **Fascure Node.js App** in WHM and in the Jupiter theme, and allows each hosting account to publish its own Apache Passenger configuration.
 
-## License plans
+## License
 
-Each key is encrypted and signed for one server hostname. The plugin reads the plan from the key.
+Licenses are issued by the Fascure license server and checked once a day. The application is in `license-server/` and is meant to run at `https://plugin.fascure-hosting.com`. See `license-server/README.md`.
+
+A license is bound to the public IP of the cPanel server. The plugin sends its key to `/api/verify.php`. The license server compares that connection's IP and the expiry date with the license. A different IP, an expired license, or a revoked license turns the plugin off.
 
 | Plan | Accounts | Applications on each account |
 | --- | --- | --- |
@@ -44,15 +46,7 @@ Until a key is saved in **WHM → Fascure Node.js App**:
 - WHM will not install Passenger or Node.js versions.
 - Customers cannot create, edit, start, stop, delete, or build applications.
 
-A key works only on the hostname it was issued for. Changing the server hostname requires a new key. Creating another application is refused when that account, or the number of accounts, is already at the plan limit.
-
-Generate a key on the machine that holds the private signing key:
-
-```bash
-FASCURE_LICENSE_PRIVATE_KEY=/path/to/private.pem tools/keygen.sh --host ns10.example.com --plan standard
-```
-
-The private signing key is not in this repository. `lib/license-aes.hex` and `lib/license-hmac.hex` let a licensed server decrypt the plan stored inside the key. They do not let anyone create a new key.
+The daily check is `/etc/cron.daily/nodeapps-license`. Opening the WHM page also checks when the last successful check is older than 24 hours. If the license server cannot be reached, the last successful check is kept for one extra day.
 
 ## Offer Node.js to customers
 

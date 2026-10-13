@@ -10,7 +10,6 @@ use File::Path     qw(make_path remove_tree);
 use File::Spec     ();
 use File::Temp     qw(tempdir);
 use JSON::PP       ();
-use MIME::Base64   qw(decode_base64);
 use POSIX          qw(setsid);
 
 our $VERSION = '1.0.0';
@@ -129,7 +128,10 @@ sub system_status {
 }
 
 sub license_file { '/var/cpanel/nodeapps/license.key' }
-sub license_public_key { '/usr/local/nodeapps/lib/license-public.pem' }
+sub license_cache_file { '/var/cpanel/nodeapps/license-cache.json' }
+sub license_server_url {
+    return $ENV{NODEAPPS_LICENSE_URL} || 'https://plugin.fascure-hosting.com/api/verify.php';
+}
 
 sub license_hostname {
     my $host = '';
@@ -144,44 +146,49 @@ sub license_hostname {
 
 sub license_status {
     my $host = license_hostname();
-    my $file = license_file();
-    if ( !-s $file ) {
+    my $token = _read_license_key();
+    if ( $token eq '' ) {
         return {
             licensed => 0,
             host     => $host,
-            message  => "Fascure Node.js App is limited until a license key for $host is entered in WHM.",
+            message  => 'Fascure Node.js App is limited until a license key is entered in WHM.',
         };
     }
-    my $token = '';
-    if ( open my $fh, '<', $file ) {
-        local $/;
-        $token = <$fh> // '';
-        close $fh;
-    }
-    my $info = eval { _license_parse($token) };
-    if ( !$info ) {
-        my $err = $@ || 'License key is not valid.';
-        $err =~ s/\s+\z//;
-        return { licensed => 0, host => $host, message => $err };
-    }
+    my $info = _license_checked($token);
     my $tenants_used = 0;
     if ( $> == 0 ) {
         my $inv = eval { license_inventory() };
         $tenants_used = $inv->{tenants_used} || 0 if $inv;
+    }
+    if ( !$info->{ok} ) {
+        return {
+            licensed => 0,
+            host     => $host,
+            ip       => $info->{ip} || '',
+            message  => $info->{message} || 'The license server rejected this key.',
+            tenants_used => $tenants_used,
+        };
     }
     my $account_label = $info->{tenants} ? $info->{tenants} : 'unlimited';
     my $app_label     = $info->{apps}     ? $info->{apps}     : 'unlimited';
     return {
         licensed   => 1,
         host       => $host,
+        ip         => $info->{ip} || '',
         plan       => $info->{plan},
         plan_label => $info->{plan_label},
         tenants    => $info->{tenants},
         apps       => $info->{apps},
         tenants_used => $tenants_used,
-        expires    => $info->{exp} || 0,
-        message    => "Licensed for $host. $info->{plan_label} plan: $account_label accounts, $app_label applications on each account.",
+        expires    => $info->{expires_at} || '',
+        message    => "Licensed for $info->{ip}. $info->{plan_label} plan: $account_label accounts, $app_label applications on each account. Expires $info->{expires_at}.",
     };
+}
+
+sub license_refresh {
+    my $token = _read_license_key();
+    return { ok => 0, message => 'No license key is saved.' } if $token eq '';
+    return _license_remote( $token, 1 );
 }
 
 sub require_license {
@@ -193,49 +200,110 @@ sub require_license {
 sub save_license {
     my ($token) = @_;
     die "Only the server administrator can save a license key.\n" if $> != 0;
-    my $info = _license_parse($token);
+    $token = _normalize_license_key($token);
+    die "Enter a license key.\n" if $token eq '';
+    my $info = _license_remote( $token, 1 );
+    die ( $info->{message} || "The license server rejected this key.\n" ) unless $info->{ok};
     my $dir = '/var/cpanel/nodeapps';
     make_path( $dir, { mode => 0755 } );
     my $file = license_file();
     open my $fh, '>', $file or die "Could not save the license key.\n";
-    print {$fh} $token =~ s/\s+//gr, "\n";
+    print {$fh} $token, "\n";
     close $fh;
     chmod 0644, $file;
     return license_status();
 }
 
-sub _license_parse {
+sub _read_license_key {
+    my $file = license_file();
+    return '' unless -s $file;
+    open my $fh, '<', $file or return '';
+    my $token = <$fh> // '';
+    close $fh;
+    return _normalize_license_key($token);
+}
+
+sub _normalize_license_key {
     my ($token) = @_;
     $token = '' unless defined $token;
     $token =~ s/\s+//g;
-    die "Enter a license key.\n" if $token eq '';
-    die "License key is not valid.\n" if length($token) > 16000;
-    die "This license key is from an older plugin. Generate a new key.\n" if $token =~ /\AFSC1\./;
-    die "License key is not valid.\n" unless $token =~ /\AFSC2\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)\z/;
-    my $blob = _b64url_decode($1);
-    my $sig  = _b64url_decode($2);
-    die "License key is not valid.\n" unless defined $blob && defined $sig && length($sig) > 0;
-    _license_verify_signature( $blob, $sig ) or die "License key is not valid.\n";
-    my $payload = _license_decrypt($blob) or die "License key is not valid.\n";
-    my $data = eval { JSON::PP->new->utf8(0)->decode($payload) };
-    die "License key is not valid.\n" unless ref $data eq 'HASH';
-    die "License key is not valid.\n" unless ( $data->{product} || '' ) eq 'fascure-nodeapps';
-    my $plan = _plan_spec( $data->{plan} ) or die "License plan is not valid.\n";
-    die "License plan limits do not match.\n"
-        if ( $data->{tenants} || 0 ) != $plan->{tenants} || ( $data->{apps} || 0 ) != $plan->{apps};
-    my $host = license_hostname();
-    my $key_host = $data->{host} || '';
-    die "This license key is for a different server.\n" if lc($key_host) ne lc($host);
-    my $exp = $data->{exp} || 0;
-    die "This license key has expired.\n" if $exp =~ /\A\d+\z/ && $exp > 0 && $exp < time;
-    return {
-        host       => $host,
-        exp        => $exp,
-        plan       => $plan->{id},
-        plan_label => $plan->{label},
-        tenants    => $plan->{tenants},
-        apps       => $plan->{apps},
+    return uc $token;
+}
+
+sub _license_checked {
+    my ($token) = @_;
+    my $cache = _read_license_cache();
+    my $fresh = $cache
+        && ( $cache->{license_key} || '' ) eq $token
+        && ( $cache->{checked_at} || 0 ) > time - 86400;
+    if ($fresh) {
+        return $cache;
+    }
+    return _license_remote( $token, $> == 0 );
+}
+
+sub _license_remote {
+    my ( $token, $write_cache ) = @_;
+    my $url = license_server_url();
+    my $body = JSON::PP->new->encode( { license_key => $token } );
+    my $http = HTTP::Tiny->new( timeout => 20, verify_SSL => 1 );
+    my $res = $http->request(
+        'POST', $url,
+        {
+            headers => { 'Content-Type' => 'application/json', 'Accept' => 'application/json' },
+            content => $body,
+        }
+    );
+    my $data = eval { JSON::PP->new->utf8->decode( $res->{content} || '' ) };
+    if ( !$res->{success} && !( ref $data eq 'HASH' && exists $data->{ok} ) ) {
+        my $cache = _read_license_cache();
+        if (   $cache
+            && ( $cache->{license_key} || '' ) eq $token
+            && $cache->{ok}
+            && ( $cache->{checked_at} || 0 ) > time - 172800 )
+        {
+            $cache->{message} = 'Using the license verified ' . localtime( $cache->{checked_at} ) . ' because the license server did not answer.';
+            return $cache;
+        }
+        return { ok => 0, message => 'The license server did not answer. The plugin stays limited until it can be checked.' };
+    }
+    return { ok => 0, message => 'The license server returned an unexpected response.' } unless ref $data eq 'HASH';
+    my $plan = _plan_spec( $data->{plan} || '' );
+    my $info = {
+        ok           => $data->{ok} ? 1 : 0,
+        license_key  => $token,
+        checked_at   => time,
+        plan         => $plan ? $plan->{id} : '',
+        plan_label   => $plan ? $plan->{label} : '',
+        tenants      => $plan ? $plan->{tenants} : 0,
+        apps         => $plan ? $plan->{apps} : 0,
+        ip           => $data->{ip} || '',
+        expires_at   => $data->{expires_at} || '',
+        message      => $data->{message} || ( $data->{ok} ? 'License is valid.' : 'The license server rejected this key.' ),
     };
+    if ( $info->{ok} && !$plan ) {
+        $info->{ok} = 0;
+        $info->{message} = 'The license server returned an unknown plan.';
+    }
+    _write_license_cache($info) if $write_cache;
+    return $info;
+}
+
+sub _read_license_cache {
+    my $file = license_cache_file();
+    return unless -s $file;
+    my $data = _read_json($file);
+    return unless ref $data eq 'HASH';
+    return $data;
+}
+
+sub _write_license_cache {
+    my ($info) = @_;
+    my $dir = '/var/cpanel/nodeapps';
+    make_path( $dir, { mode => 0755 } );
+    _write_json( license_cache_file(), $info );
+    chmod 0644, license_cache_file();
+    return 1;
 }
 
 sub _plan_spec {
@@ -247,111 +315,6 @@ sub _plan_spec {
     );
     return $plans{$id} if defined $id && $plans{$id};
     return;
-}
-
-sub _license_verify_signature {
-    my ( $payload, $sig ) = @_;
-    my $pub = license_public_key();
-    return 0 unless -r $pub;
-    my $dir = tempdir( 'nodeapps-lic-XXXX', DIR => '/tmp', CLEANUP => 1 );
-    my $payload_file = "$dir/payload";
-    my $sig_file     = "$dir/sig";
-    open my $pf, '>', $payload_file or return 0;
-    binmode $pf;
-    print {$pf} $payload;
-    close $pf;
-    open my $sf, '>', $sig_file or return 0;
-    binmode $sf;
-    print {$sf} $sig;
-    close $sf;
-    local $ENV{PATH} = '/usr/bin:/bin';
-    open my $oldout, '>&', \*STDOUT or return 0;
-    open my $olderr, '>&', \*STDERR or return 0;
-    open STDOUT, '>', '/dev/null';
-    open STDERR, '>', '/dev/null';
-    my $rc = system(
-        '/usr/bin/openssl', 'dgst', '-sha256', '-verify', $pub,
-        '-signature', $sig_file, $payload_file
-    );
-    open STDOUT, '>&', $oldout;
-    open STDERR, '>&', $olderr;
-    return $rc == 0 ? 1 : 0;
-}
-
-sub _b64url_decode {
-    my ($text) = @_;
-    return if !defined $text || $text !~ /\A[A-Za-z0-9_-]+\z/;
-    my $pad = length($text) % 4;
-    $text .= '=' x ( 4 - $pad ) if $pad;
-    $text =~ tr{-_}{+/};
-    my $raw = eval { decode_base64($text) };
-    return if !defined $raw || $raw eq '';
-    return $raw;
-}
-
-sub _read_hex_key {
-    my ($path) = @_;
-    return unless -r $path;
-    open my $fh, '<', $path or return;
-    my $line = <$fh> // '';
-    close $fh;
-    chomp $line;
-    $line =~ s/\s+//g;
-    return lc $line if $line =~ /\A[0-9a-f]{64}\z/;
-    return;
-}
-
-sub _license_decrypt {
-    my ($blob) = @_;
-    return if !defined $blob || length($blob) < 64;
-    my $iv     = substr( $blob, 0, 16 );
-    my $mac    = substr( $blob, 16, 32 );
-    my $cipher = substr( $blob, 48 );
-    return if $cipher eq '';
-    my $aes  = _read_hex_key('/usr/local/nodeapps/lib/license-aes.hex')  or return;
-    my $hmac = _read_hex_key('/usr/local/nodeapps/lib/license-hmac.hex') or return;
-    my $dir  = tempdir( 'nodeapps-lic-XXXX', DIR => '/tmp', CLEANUP => 1 );
-    open my $mf, '>', "$dir/mac-in" or return;
-    binmode $mf;
-    print {$mf} $iv, $cipher;
-    close $mf;
-    open my $cf, '>', "$dir/cipher" or return;
-    binmode $cf;
-    print {$cf} $cipher;
-    close $cf;
-    local $ENV{PATH} = '/usr/bin:/bin';
-    open my $oldout, '>&', \*STDOUT or return;
-    open my $olderr, '>&', \*STDERR or return;
-    open STDOUT, '>', '/dev/null';
-    open STDERR, '>', '/dev/null';
-    my $mac_rc = system(
-        '/usr/bin/openssl', 'dgst', '-sha256', '-mac', 'HMAC', '-macopt', "hexkey:$hmac",
-        '-binary', '-out', "$dir/mac", "$dir/mac-in"
-    );
-    my $plain = '';
-    my $dec_rc = 1;
-    if ( $mac_rc == 0 ) {
-        open my $got, '<', "$dir/mac" or do { open STDOUT, '>&', $oldout; open STDERR, '>&', $olderr; return };
-        binmode $got;
-        local $/;
-        my $have = <$got> // '';
-        close $got;
-        if ( length($have) == length($mac) && $have eq $mac ) {
-            my $iv_hex = unpack( 'H*', $iv );
-            $dec_rc = system(
-                '/usr/bin/openssl', 'enc', '-aes-256-cbc', '-d', '-K', $aes, '-iv', $iv_hex,
-                '-nosalt', '-in', "$dir/cipher", '-out', "$dir/plain"
-            );
-            if ( $dec_rc == 0 && open my $pf, '<', "$dir/plain" ) {
-                local $/;
-                $plain = <$pf> // '';
-                close $pf;
-            }
-        }
-    }
-    open STDOUT, '>&', $oldout;
-    open STDERR, '>&', $olderr;
-    return $plain eq '' ? undef : $plain;
 }
 
 sub license_inventory {

@@ -1,0 +1,12 @@
+#!/usr/local/cpanel/3rdparty/bin/perl
+use strict;
+use warnings;
+use lib '/usr/local/nodeapps/lib';
+use NodeApps;
+my $info = NodeApps::license_refresh();
+if ( $info->{ok} ) {
+    print "License verified for $info->{ip} until $info->{expires_at}.\n";
+    exit 0;
+}
+warn( ( $info->{message} || 'License check failed.' ) . "\n" );
+exit 1;

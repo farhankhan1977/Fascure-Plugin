@@ -101,14 +101,14 @@ print '<div class="ok">' . esc($notice) . '</div>' if $notice ne '';
 print '<div class="bad">' . esc($error) . '</div>' if $error ne '';
 
 print '<div class="card"><h3>License key</h3>';
-print '<p>This plugin stays limited until a license key for <strong>' . esc( $license->{host} ) . '</strong> is saved. Customers cannot create or change applications before that.</p>';
+print '<p>This plugin checks its license once a day at <strong>plugin.fascure-hosting.com</strong>. The license is valid only for the public IP that contacts the license server, and only until its expiry date.</p>';
 print $license->{licensed}
     ? '<div class="ok">' . esc( $license->{message} ) . '</div>'
     : '<div class="bad">' . esc( $license->{message} ) . '</div>';
 print <<'HTML';
 <form method="post">
 <input type="hidden" name="action" value="license">
-<p><input type="text" name="key" placeholder="FSC2...." style="width:100%" required></p>
+<p><input type="text" name="key" placeholder="FSCP-...." style="width:100%" required></p>
 <button type="submit">Save license key</button>
 </form>
 </div>

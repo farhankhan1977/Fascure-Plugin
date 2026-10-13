@@ -1,3 +1,5 @@
 *.tar.gz
 private/
 *.key
+license-server/config.php
+license-server/installed.lock
