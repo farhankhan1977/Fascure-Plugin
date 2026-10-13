@@ -116,21 +116,21 @@ Click **Stop App** to take it offline. Click **Start App** to publish it again. 
 The files go in the same kind of folder as the Node.js test. Use a different name so the two projects stay separate. Do not copy `examples/hello` into the Next.js folder, and do not put the Next.js project in `public_html`.
 
 1. Upload the Next.js project to `/home/username/apps/my-site/`.
-2. Add `server.js` in that same folder. It must listen on `process.env.PORT`:
+2. Add `server.js` in that same folder. It must listen on `process.env.PORT` and on `127.0.0.1`. That port is internal. Passenger chooses it and Apache connects to it on the same server. Visitors use the website address, such as `https://your-domain.example/my-site/`, on ports 80 and 443. The `3000` value is used only when the file is started by hand without Passenger.
 
 ```js
 const { createServer } = require('http');
 const { parse } = require('url');
 const next = require('next');
 
-const port = process.env.PORT || 3000;
-const app = next({ dev: false, dir: __dirname });
+const port = parseInt(process.env.PORT, 10) || 3000;
+const app = next({ dev: false, hostname: '127.0.0.1', port, dir: __dirname });
 const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
   createServer((req, res) => {
     handle(req, res, parse(req.url, true));
-  }).listen(port);
+  }).listen(port, '127.0.0.1');
 });
 ```
 
