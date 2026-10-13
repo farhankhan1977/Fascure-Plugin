@@ -11,6 +11,7 @@ use File::Spec     ();
 use File::Temp     qw(tempdir);
 use JSON::PP       ();
 use POSIX          qw(setsid);
+use Time::Local    qw(timelocal);
 
 our $VERSION = '1.0.0';
 our $PREFIX  = $ENV{NODEAPPS_PREFIX} || '/opt/nodeapps';
@@ -124,6 +125,7 @@ sub system_status {
         apps      => $license->{apps} || 0,
         tenants_used => $license->{tenants_used} || 0,
         apps_used => $self->_local_app_count,
+        license_expires => $license->{license_expires} || '',
     };
 }
 
@@ -155,6 +157,7 @@ sub license_status {
         };
     }
     my $info = _license_checked($token);
+    my $stopped = _enforce_expired_license($info);
     my $tenants_used = 0;
     if ( $> == 0 ) {
         my $inv = eval { license_inventory() };
@@ -165,7 +168,8 @@ sub license_status {
             licensed => 0,
             host     => $host,
             ip       => $info->{ip} || '',
-            message  => $info->{message} || 'The license server rejected this key.',
+            message  => ( $info->{message} || 'The license server rejected this key.' )
+                . ( $stopped ? ' Running Node.js and Next.js applications have been stopped.' : '' ),
             tenants_used => $tenants_used,
         };
     }
@@ -180,7 +184,7 @@ sub license_status {
         tenants    => $info->{tenants},
         apps       => $info->{apps},
         tenants_used => $tenants_used,
-        expires    => $info->{expires_at} || '',
+        license_expires => $info->{expires_at} || '',
         message    => "Licensed for $info->{ip}. $info->{plan_label} plan: $account_label accounts, $app_label applications on each account. Expires $info->{expires_at}.",
     };
 }
@@ -188,7 +192,9 @@ sub license_status {
 sub license_refresh {
     my $token = _read_license_key();
     return { ok => 0, message => 'No license key is saved.' } if $token eq '';
-    return _license_remote( $token, 1 );
+    my $info = _license_remote( $token, 1 );
+    $info->{stopped} = _enforce_expired_license($info);
+    return $info;
 }
 
 sub require_license {
@@ -236,7 +242,10 @@ sub _license_checked {
     my $fresh = $cache
         && ( $cache->{license_key} || '' ) eq $token
         && ( $cache->{checked_at} || 0 ) > time - 86400;
-    if ($fresh) {
+    if ( $fresh && $cache->{ok} && !_license_time_past( $cache->{expires_at} ) ) {
+        return $cache;
+    }
+    if ( $fresh && !$cache->{ok} && $cache->{enforce_stop} ) {
         return $cache;
     }
     return _license_remote( $token, $> == 0 );
@@ -279,7 +288,9 @@ sub _license_remote {
         apps         => $plan ? $plan->{apps} : 0,
         ip           => $data->{ip} || '',
         expires_at   => $data->{expires_at} || '',
+        status       => $data->{status} || '',
         message      => $data->{message} || ( $data->{ok} ? 'License is valid.' : 'The license server rejected this key.' ),
+        enforce_stop => ( !$data->{ok} && ( $data->{status} || '' ) =~ /\A(?:expired|revoked|wrong_ip|unknown)\z/ ) ? 1 : 0,
     };
     if ( $info->{ok} && !$plan ) {
         $info->{ok} = 0;
@@ -304,6 +315,83 @@ sub _write_license_cache {
     _write_json( license_cache_file(), $info );
     chmod 0644, license_cache_file();
     return 1;
+}
+
+sub _license_time_past {
+    my ($value) = @_;
+    return 0 unless defined $value && $value =~ /\A(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})\z/;
+    my $when = eval { timelocal( $6, $5, $4, $3, $2 - 1, $1 ) };
+    return defined $when && $when < time ? 1 : 0;
+}
+
+sub _enforce_expired_license {
+    my ($info) = @_;
+    return 0 unless ref $info eq 'HASH' && $info->{enforce_stop};
+    if ( $> != 0 ) {
+        my $stamp = '/var/cpanel/nodeapps/license-apps-stopped';
+        my $checked = $info->{checked_at} || 0;
+        if ( -f $stamp && ( stat $stamp )[9] >= $checked ) {
+            return 0;
+        }
+        my $bin = '/usr/local/nodeapps/bin/nodeapps-license-check';
+        return 0 unless -x $bin;
+        local $ENV{PATH} = '/usr/bin:/bin';
+        system( '/usr/bin/sudo', '-n', $bin );
+        return 0;
+    }
+    return stop_apps_for_expired_license();
+}
+
+sub stop_apps_for_expired_license {
+    return 0 if $> != 0;
+    my $dir = '/var/cpanel/users';
+    opendir my $dh, $dir or return 0;
+    my @users;
+    my $count = 0;
+    foreach my $name ( readdir $dh ) {
+        next if $name =~ /^\./ || $name eq 'system';
+        my $user = _untaint_user($name) or next;
+        my $manager = eval { NodeApps->new( user => $user ) } or next;
+        my $data = eval { $manager->_load } or next;
+        my $dirty = 0;
+        foreach my $app ( @{ $data->{apps} || [] } ) {
+            next unless $app->{enabled};
+            $manager->_touch_restart($app);
+            $app->{enabled}        = 0;
+            $app->{stopped_reason} = 'license';
+            $dirty = 1;
+            $count++;
+        }
+        if ($dirty) {
+            $manager->_save($data);
+            push @users, $user;
+        }
+    }
+    closedir $dh;
+    my $apply = '/usr/local/nodeapps/bin/nodeapps-apply';
+    my $failed = 0;
+    foreach my $user (@users) {
+        my $rc = system( $apply, '--user=' . $user );
+        next if $rc == 0;
+        $failed = 1;
+        my $manager = eval { NodeApps->new( user => $user ) } or next;
+        my $data = eval { $manager->_load } or next;
+        foreach my $app ( @{ $data->{apps} || [] } ) {
+            next unless ( $app->{stopped_reason} || '' ) eq 'license' && !$app->{enabled};
+            $app->{enabled} = 1;
+            delete $app->{stopped_reason};
+        }
+        $manager->_save($data);
+    }
+    return 0 if $failed;
+    my $stamp_dir = '/var/cpanel/nodeapps';
+    make_path( $stamp_dir, { mode => 0755 } );
+    my $stamp = "$stamp_dir/license-apps-stopped";
+    open my $fh, '>', $stamp or return $count;
+    print {$fh} time, "\n";
+    close $fh;
+    chmod 0644, $stamp;
+    return $count;
 }
 
 sub _plan_spec {
@@ -560,6 +648,7 @@ sub set_enabled {
     my $data = $self->_load;
     my $app  = $self->_find( $data, $id ) or die "Unknown application.\n";
     $app->{enabled} = $enabled ? 1 : 0;
+    delete $app->{stopped_reason} if $app->{enabled};
     if ( $app->{enabled} ) {
         $self->_write_runtime($app);
         $self->_prepare_uri_dir($app);
@@ -741,6 +830,7 @@ sub _public_app {
         version  => $app->{version},
         env      => $app->{env} || {},
         enabled  => $app->{enabled} ? 1 : 0,
+        stopped_reason => $app->{stopped_reason} || '',
         created  => $app->{created} || 0,
         activate => 'source ' . $self->_venv_dir($app) . '/bin/activate',
         url_path => $app->{domain} . ( $app->{uri} eq '/' ? '/' : $app->{uri} ),

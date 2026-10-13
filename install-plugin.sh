@@ -18,12 +18,15 @@ install -m 0644 "$SRC/lib/license-aes.hex" /usr/local/nodeapps/lib/license-aes.h
 install -m 0644 "$SRC/lib/license-hmac.hex" /usr/local/nodeapps/lib/license-hmac.hex
 install -m 0755 "$SRC/bin/nodeapps-apply" /usr/local/nodeapps/bin/nodeapps-apply
 install -m 0755 "$SRC/bin/nodeapps-quota" /usr/local/nodeapps/bin/nodeapps-quota
+install -m 0755 "$SRC/bin/nodeapps-license-check" /usr/local/nodeapps/bin/nodeapps-license-check
 install -m 0755 "$SRC/bin/nodeapps-license-check" /etc/cron.daily/nodeapps-license
 cat > /etc/sudoers.d/nodeapps <<'EOF'
 Defaults!/usr/local/nodeapps/bin/nodeapps-apply !requiretty
 Defaults!/usr/local/nodeapps/bin/nodeapps-quota !requiretty
+Defaults!/usr/local/nodeapps/bin/nodeapps-license-check !requiretty
 ALL ALL=(root) NOPASSWD: /usr/local/nodeapps/bin/nodeapps-apply
 ALL ALL=(root) NOPASSWD: /usr/local/nodeapps/bin/nodeapps-quota
+ALL ALL=(root) NOPASSWD: /usr/local/nodeapps/bin/nodeapps-license-check
 EOF
 chmod 0440 /etc/sudoers.d/nodeapps
 visudo -cf /etc/sudoers.d/nodeapps

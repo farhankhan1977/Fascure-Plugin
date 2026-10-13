@@ -8,5 +8,8 @@ if ( $info->{ok} ) {
     print "License verified for $info->{ip} until $info->{expires_at}.\n";
     exit 0;
 }
+if ( $info->{stopped} ) {
+    print "Stopped $info->{stopped} application(s) because the license is not valid.\n";
+}
 warn( ( $info->{message} || 'License check failed.' ) . "\n" );
 exit 1;
