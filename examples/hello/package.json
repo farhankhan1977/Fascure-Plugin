@@ -1,0 +1,7 @@
+{
+  "name": "fascure-node-test",
+  "private": true,
+  "scripts": {
+    "start": "node app.js"
+  }
+}

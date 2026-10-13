@@ -1,0 +1,61 @@
+#!/usr/local/cpanel/3rdparty/bin/perl
+use strict;
+use warnings;
+
+use File::Path qw(make_path remove_tree);
+use File::Spec ();
+use lib '/usr/local/nodeapps/lib';
+use NodeApps;
+
+die "This helper must run as root.\n" if $> != 0;
+
+my $user = $ENV{SUDO_USER} || '';
+if ( $user eq '' || $user eq 'root' ) {
+    my $arg = $ARGV[0] || '';
+    if ( $arg =~ /\A--user=([a-z_][a-z0-9_-]{0,31})\z/ ) {
+        $user = $1;
+    }
+    else {
+        die "Run this through sudo from the hosting account.\n";
+    }
+}
+else {
+    $user =~ /\A([a-z_][a-z0-9_-]{0,31})\z/ or die "Invalid account.\n";
+    $user = $1;
+}
+
+my $api = NodeApps->new( user => $user );
+my $confs = $api->apache_userdata;
+my $base  = '/etc/apache2/conf.d/userdata';
+
+foreach my $kind (qw(std ssl)) {
+    my $userdir = File::Spec->catdir( $base, $kind, '2_4', $user );
+    next unless -d $userdir || $kind eq 'std';
+    if ( opendir my $dh, $userdir ) {
+        foreach my $domain ( readdir $dh ) {
+            next if $domain =~ /\A\./;
+            next unless $domain =~ /\A[A-Za-z0-9.-]+\z/;
+            my $file = File::Spec->catfile( $userdir, $domain, 'nodeapps.conf' );
+            unlink $file if -f $file && !exists $confs->{$domain};
+        }
+        closedir $dh;
+    }
+}
+
+foreach my $domain ( sort keys %{$confs} ) {
+    foreach my $kind (qw(std ssl)) {
+        my $dir = File::Spec->catdir( $base, $kind, '2_4', $user, $domain );
+        make_path( $dir, { mode => 0755 } );
+        my $file = File::Spec->catfile( $dir, 'nodeapps.conf' );
+        open my $fh, '>', $file or die "Could not write $file: $!\n";
+        print {$fh} $confs->{$domain};
+        close $fh;
+        chmod 0644, $file;
+    }
+}
+
+my $rebuild = '/usr/local/cpanel/scripts/rebuildhttpdconf';
+my $restart = '/usr/local/cpanel/scripts/restartsrv_httpd';
+system($rebuild) == 0 or die "Could not rebuild the web server configuration.\n";
+system($restart) == 0 or die "Could not restart the web server.\n";
+exit 0;

@@ -1,0 +1,14 @@
+[
+    {
+        "icon": "nodeapps.svg",
+        "group_id": "software",
+        "order": 1,
+        "name": "Fascure Node.js App",
+        "type": "link",
+        "id": "nodeapps",
+        "uri": "nodeapps/index.live.php",
+        "featuremanager": 1,
+        "feature": "nodeapps",
+        "description": "Create and manage Node.js and Next.js applications."
+    }
+]
