@@ -56,24 +56,78 @@ After the license key is saved:
 2. Install the Node.js versions customers may select, such as `20` or `22`.
 3. Choose one installed version as the default.
 
-## Customer application
+## Where to put application files
 
-The customer opens **cPanel → Software → Fascure Node.js App** and creates an application:
+Upload the Node.js or Next.js project into the account home directory. Do not upload the project into `public_html`. `public_html` is only the website address. The plugin keeps the application files beside it and attaches a URL such as `/node-test`.
 
-| Field | Example |
+For a cPanel user named `username`, the test application lives here:
+
+```text
+/home/username/apps/hello/app.js
+/home/username/apps/hello/package.json
+```
+
+In **cPanel → File Manager**, open the home folder (the folder that contains `public_html`), then open `apps/hello`. The same folder over SFTP or FTP is `apps/hello` directly under the account home.
+
+```text
+/home/username/
+├── apps/hello/              ← upload the Node.js project here
+│   ├── app.js
+│   └── package.json
+└── public_html/             ← normal website files stay here
+    └── node-test/           ← URL folder created by the plugin; leave the app source out of it
+```
+
+## Run the test application
+
+`examples/hello` in this repository is a small Node.js server. It listens on `process.env.PORT`, which Passenger sets.
+
+1. Open **cPanel → Software → Fascure Node.js App**.
+2. Create an application with these values:
+
+| Field | Value |
 | --- | --- |
 | Application name | `hello` |
-| Application type | Node.js or Next.js |
-| Node.js version | `v22` |
+| Application type | Node.js |
+| Node.js version | the installed version, such as `v22.23.3` |
+| Application mode | Production |
 | Application root | `apps/hello` |
-| Application URL | `unisocia.com` `/node-test` |
+| Domain | the account domain |
+| Application URL | `/node-test` |
 | Startup file | `app.js` |
 
-The application must listen on `process.env.PORT`. For Next.js, use a custom `server.js` that listens on that port, then run **NPM Install** and **Run next build**.
+3. If the folder is empty, leave **Create starter files** checked and click **Create**. To use the files from `examples/hello` instead, upload `app.js` and `package.json` into `/home/username/apps/hello/` before you click **Create**, and leave starter files unchecked.
+4. Open the application card and click **Run NPM Install**.
+5. Click **Restart**.
+6. Open `https://your-domain.example/node-test/`. The page should show the Node.js version.
 
-## Test application
+Click **Stop App** to take it offline. Click **Start App** to publish it again. **Delete** removes the application from the plugin. Check **Also delete application files** only when `/home/username/apps/hello/` should be removed too.
 
-`examples/hello` is a small Node.js server. Place `app.js` and `package.json` in the application root, then create the application with startup file `app.js`.
+## Run a Next.js application
+
+1. Upload the Next.js project to an application root such as `/home/username/apps/my-site/`.
+2. Add a `server.js` that listens on `process.env.PORT`.
+3. Create the application with type **Next.js**, root `apps/my-site`, the URL you want, and startup file `server.js`.
+4. Click **Run NPM Install**, then **Run next build**, then **Restart**.
+5. Open the application URL.
+
+## Uninstall
+
+On the cPanel server, as root, from a checkout of this repository:
+
+```bash
+bash uninstall-plugin.sh
+```
+
+To also delete the Node.js builds installed for the plugin:
+
+```bash
+bash uninstall-plugin.sh --remove-node
+```
+
+The uninstaller removes the WHM page, the cPanel page, the license check, and the Passenger configuration for plugin applications. It stops those applications from answering on the web.
+
+It does not delete project files already uploaded to an account. Those stay in folders such as `/home/username/apps/`. Delete that folder from File Manager when the project itself should be removed. A normal website in `public_html` is not part of this plugin and is left as it is.
 
 ## What gets installed
 
@@ -82,6 +136,7 @@ The application must listen on `process.env.PORT`. For Next.js, use a custom `se
 - Node.js builds under `/opt/nodeapps/versions`
 - Account applications recorded in the account home, `.nodeapps/apps.json`
 - Apache Passenger configuration for each application, written for that account only
+- Uninstaller: `uninstall-plugin.sh`
 
 ## Trademarks
 
