@@ -220,6 +220,26 @@ sub save_license {
     return license_status();
 }
 
+sub claim_free_license {
+    die "Only the server administrator can request a free license.\n" if $> != 0;
+    my $url = license_server_url();
+    $url =~ s{/verify\.php\z}{/free.php} or die "The free-license address is not available.\n";
+    my $http = HTTP::Tiny->new( timeout => 20, verify_SSL => 1 );
+    my $res = $http->request(
+        'POST', $url,
+        {
+            headers => { 'Content-Type' => 'application/json', 'Accept' => 'application/json' },
+            content => '{}',
+        }
+    );
+    my $data = eval { JSON::PP->new->utf8->decode( $res->{content} || '' ) };
+    die "The license server did not answer.\n" unless ref $data eq 'HASH';
+    die ( $data->{message} || "The license server rejected the free license.\n" ) . "\n" unless $data->{ok};
+    my $saved = save_license( $data->{license_key} || '' );
+    $saved->{message} = $data->{message} || $saved->{message};
+    return $saved;
+}
+
 sub _read_license_key {
     my $file = license_file();
     return '' unless -s $file;
@@ -1385,6 +1405,7 @@ package NodeApps::Admin;
 use strict;
 use warnings;
 
+use Fcntl      qw(O_WRONLY);
 use File::Path qw(make_path remove_tree);
 use File::Spec ();
 use HTTP::Tiny ();
@@ -1392,6 +1413,394 @@ use JSON::PP   ();
 
 sub _root_only {
     die "This action requires root.\n" if $> != 0;
+}
+
+sub cpu_file { '/var/cpanel/nodeapps/cpu.json' }
+
+sub cpu_cores {
+    my $n = 0;
+    if ( open my $fh, '<', '/proc/cpuinfo' ) {
+        while (<$fh>) { $n++ if /^processor\s*:/; }
+        close $fh;
+    }
+    return $n > 0 ? $n : 1;
+}
+
+sub cpu_limits {
+    my $data = NodeApps::_read_json( cpu_file() );
+    return {} unless ref $data eq 'HASH';
+    my %clean;
+    foreach my $user ( keys %{$data} ) {
+        my $safe = NodeApps::_untaint_user($user) or next;
+        my $percent = $data->{$user};
+        next unless defined $percent && $percent =~ /\A(\d{1,5})\z/;
+        $clean{$safe} = $1 + 0 if $1 > 0;
+    }
+    return \%clean;
+}
+
+sub set_cpu_limit {
+    NodeApps::require_license();
+    _root_only();
+    my ( $user, $percent ) = @_;
+    $user = NodeApps::_untaint_user($user) or die "Unknown account.\n";
+    die "Unknown account.\n" unless -f "/var/cpanel/users/$user";
+    die "Enter a whole number for the CPU percentage.\n" unless defined $percent && $percent =~ /\A(\d{1,5})\z/;
+    $percent = $1 + 0;
+    my $max = cpu_cores() * 100;
+    die "CPU percentage must be from 0 to $max on this server. 100 is one core, and 0 removes the limit.\n" if $percent > $max;
+    my $limits = cpu_limits();
+    if ( $percent == 0 ) {
+        delete $limits->{$user};
+    }
+    else {
+        $limits->{$user} = $percent;
+    }
+    _write_cpu_limits($limits);
+    my $applied = apply_cpu_limits();
+    my $message = $percent == 0
+        ? "Removed the CPU limit for $user."
+        : "Set the CPU limit for $user to $percent% of one core.";
+    $message .= ' ' . $applied->{message} if !$applied->{ok} && $applied->{message};
+    return { ok => $applied->{ok} ? 1 : 0, message => $message, percent => $percent };
+}
+
+sub apply_cpu_limits {
+    _root_only();
+    my $mount = _cpu_mount();
+    unless ($mount) {
+        return { ok => 0, message => 'The CPU controller is not available, so the percentage is saved but not enforced.' };
+    }
+    my $ok = eval { _apply_cpu_limits($mount); 1 };
+    return { ok => 1, message => '' } if $ok;
+    my $message = $@ || 'Could not apply the CPU limit.';
+    $message =~ s/\s+\z//;
+    return { ok => 0, message => $message };
+}
+
+sub clear_cpu_limits {
+    _root_only();
+    my $mount = _cpu_mount() or return 1;
+    opendir my $dh, $mount->{path} or return 1;
+    foreach my $name ( readdir $dh ) {
+        next unless $name =~ /\Anodeapps_([a-z_][a-z0-9_-]{0,31})\z/;
+        _release_cgroup( $mount, $1 );
+    }
+    closedir $dh;
+    return 1;
+}
+
+sub server_overview {
+    _root_only();
+    my $limits = cpu_limits();
+    my $cores  = cpu_cores();
+    my $mount  = _cpu_mount();
+    my $ports  = _listening_by_pid();
+    my @tenants;
+    my @apps;
+    my $dir = '/var/cpanel/users';
+    opendir my $dh, $dir or die "Could not read the account list.\n";
+    foreach my $name ( sort readdir $dh ) {
+        next if $name =~ /^\./ || $name eq 'system';
+        my $user = NodeApps::_untaint_user($name) or next;
+        my $info = _cpuser($user);
+        next unless $info->{USER} && $info->{USER} eq $user;
+        my $enabled = _plugin_enabled($info);
+        my $home = eval { NodeApps::_account_home($user) } || '';
+        my $data = ( $home ne '' ) ? ( NodeApps::_read_json( File::Spec->catfile( $home, '.nodeapps', 'apps.json' ) ) || {} ) : {};
+        my $rows = ref $data->{apps} eq 'ARRAY' ? $data->{apps} : [];
+        if ( $enabled || $limits->{$user} ) {
+            push @tenants, {
+                user        => $user,
+                domain      => $info->{DNS} || '',
+                featurelist => $info->{FEATURELIST} || 'default',
+                enabled     => $enabled ? 1 : 0,
+                cpu         => $limits->{$user} || 0,
+                apps        => scalar @{$rows},
+            };
+        }
+        next if $home eq '';
+        foreach my $app ( @{$rows} ) {
+            next unless ref $app eq 'HASH' && ( $app->{id} || '' ) ne '';
+            my $rel = $app->{root} || '';
+            my $folder = $rel ne '' ? "$home/$rel" : $home;
+            my @listen = _ports_for_app( $user, $home, $rel, $ports );
+            my $state = 'stopped';
+            if ( $app->{enabled} && @listen ) {
+                $state = 'running';
+            }
+            elsif ( $app->{enabled} ) {
+                $state = 'idle';
+            }
+            push @apps, {
+                user    => $user,
+                domain  => $app->{domain} || ( $info->{DNS} || '' ),
+                id      => $app->{id},
+                type    => ( $app->{type} || '' ) eq 'nextjs' ? 'Next.js' : 'Node.js',
+                folder  => $folder,
+                uri     => $app->{uri} || '/',
+                state   => $state,
+                reason  => $app->{stopped_reason} || '',
+                port    => @listen ? join( ', ', @listen ) : '',
+                version => $app->{version} || '',
+            };
+        }
+    }
+    closedir $dh;
+    @apps = sort { $a->{user} cmp $b->{user} || $a->{id} cmp $b->{id} } @apps;
+    return {
+        cores     => $cores,
+        cpu_max   => $cores * 100,
+        cpu_ready => $mount ? 1 : 0,
+        tenants   => \@tenants,
+        applications => \@apps,
+    };
+}
+
+sub _write_cpu_limits {
+    my ($limits) = @_;
+    make_path( '/var/cpanel/nodeapps', { mode => 0755 } );
+    NodeApps::_write_json( cpu_file(), $limits );
+    chmod 0640, cpu_file();
+    return 1;
+}
+
+sub _cpuser {
+    my ($user) = @_;
+    my %info;
+    open my $fh, '<', "/var/cpanel/users/$user" or return \%info;
+    while ( my $line = <$fh> ) {
+        chomp $line;
+        next if $line eq '' || $line =~ /\A#/;
+        my ( $key, $value ) = split /=/, $line, 2;
+        next unless defined $key && $key ne '';
+        $info{$key} = defined $value ? $value : '';
+    }
+    close $fh;
+    return \%info;
+}
+
+sub _plugin_enabled {
+    my ($info) = @_;
+    return 0 if defined $info->{'FEATURE-nodeapps'} && $info->{'FEATURE-nodeapps'} eq '0';
+    my $list = $info->{FEATURELIST} || 'default';
+    return 1 unless $list =~ /\A([A-Za-z0-9._-]+)\z/;
+    my $path = "/var/cpanel/features/$1";
+    return 1 unless -f $path;
+    open my $fh, '<', $path or return 1;
+    while ( my $line = <$fh> ) {
+        return 0 if $line =~ /\Anodeapps=0\s*\z/;
+        return 1 if $line =~ /\Anodeapps=1\s*\z/;
+    }
+    close $fh;
+    return 1;
+}
+
+sub _cpu_mount {
+    foreach my $path ( '/sys/fs/cgroup/cpu,cpuacct', '/sys/fs/cgroup/cpu' ) {
+        return { version => 1, path => $path } if -f "$path/cpu.cfs_quota_us" && -f "$path/cgroup.procs";
+    }
+    return;
+}
+
+sub _apply_cpu_limits {
+    my ($mount) = @_;
+    my $limits = cpu_limits();
+    opendir my $dh, $mount->{path} or die "Could not read the CPU controller.\n";
+    my @existing;
+    foreach my $name ( readdir $dh ) {
+        push @existing, $1 if $name =~ /\Anodeapps_([a-z_][a-z0-9_-]{0,31})\z/;
+    }
+    closedir $dh;
+    foreach my $user (@existing) {
+        _release_cgroup( $mount, $user ) unless $limits->{$user};
+    }
+    foreach my $user ( sort keys %{$limits} ) {
+        _ensure_cgroup( $mount, $user, $limits->{$user} );
+        _move_app_processes( $mount, $user );
+    }
+    return 1;
+}
+
+sub _ensure_cgroup {
+    my ( $mount, $user, $percent ) = @_;
+    my $dir = $mount->{path} . "/nodeapps_$user";
+    make_path( $dir, { mode => 0755 } );
+    my $quota = $percent * 1000;
+    _write_text( "$dir/cpu.cfs_period_us", "100000\n" );
+    _write_text( "$dir/cpu.cfs_quota_us",  "$quota\n" );
+    return $dir;
+}
+
+sub _release_cgroup {
+    my ( $mount, $user ) = @_;
+    my $dir = $mount->{path} . "/nodeapps_$user";
+    return 1 unless -d $dir;
+    if ( open my $fh, '<', "$dir/cgroup.procs" ) {
+        my @pids = <$fh>;
+        close $fh;
+        foreach my $pid (@pids) {
+            $pid =~ s/\s+//g;
+            next unless $pid =~ /\A\d+\z/;
+            _move_pid( $mount->{path} . '/cgroup.procs', $pid );
+        }
+    }
+    rmdir $dir;
+    return 1;
+}
+
+sub _move_app_processes {
+    my ( $mount, $user ) = @_;
+    my $dir = $mount->{path} . "/nodeapps_$user";
+    my $uid = ( getpwnam($user) )[2];
+    return 0 unless defined $uid;
+    my $home = eval { NodeApps::_account_home($user) } or return 0;
+    opendir my $dh, '/proc' or return 0;
+    foreach my $pid ( readdir $dh ) {
+        next unless $pid =~ /\A\d+\z/;
+        next if _process_uid($pid) != $uid;
+        next unless _nodeapps_process( $pid, $home );
+        next if _process_in_cgroup( $pid, "nodeapps_$user" );
+        _move_pid( "$dir/cgroup.procs", $pid );
+    }
+    closedir $dh;
+    return 1;
+}
+
+sub _process_uid {
+    my ($pid) = @_;
+    open my $fh, '<', "/proc/$pid/status" or return -1;
+    while ( my $line = <$fh> ) {
+        if ( $line =~ /\AUid:\s+(\d+)/ ) {
+            close $fh;
+            return $1 + 0;
+        }
+    }
+    close $fh;
+    return -1;
+}
+
+sub _nodeapps_process {
+    my ( $pid, $home ) = @_;
+    my $exe = readlink("/proc/$pid/exe") || '';
+    $exe =~ s/ \(deleted\)\z//;
+    return 1 if $exe =~ m{\A/opt/nodeapps/versions/};
+    my $cwd = readlink("/proc/$pid/cwd") || '';
+    return 1 if $cwd ne '' && ( $cwd eq "$home/apps" || index( $cwd, "$home/apps/" ) == 0 || index( $cwd, "$home/nodevenv/" ) == 0 );
+    my $cmd = '';
+    if ( open my $fh, '<', "/proc/$pid/cmdline" ) {
+        local $/;
+        $cmd = <$fh> // '';
+        close $fh;
+    }
+    $cmd =~ s/\0/ /g;
+    return $cmd =~ /nodeapps-passenger/ ? 1 : 0;
+}
+
+sub _process_in_cgroup {
+    my ( $pid, $name ) = @_;
+    open my $fh, '<', "/proc/$pid/cgroup" or return 0;
+    while ( my $line = <$fh> ) {
+        if ( $line =~ m{/\Q$name\E\s*\z} ) {
+            close $fh;
+            return 1;
+        }
+    }
+    close $fh;
+    return 0;
+}
+
+sub _write_text {
+    my ( $file, $text ) = @_;
+    open my $fh, '>', $file or die "Could not write $file: $!\n";
+    print {$fh} $text;
+    close $fh or die "Could not write $file: $!\n";
+    return 1;
+}
+
+sub _move_pid {
+    my ( $file, $pid ) = @_;
+    return 0 unless sysopen my $fh, $file, O_WRONLY;
+    my $ok = print {$fh} "$pid\n";
+    close $fh;
+    return $ok ? 1 : 0;
+}
+
+sub _listening_by_pid {
+    my $inodes = _listen_inodes();
+    my %by_pid;
+    opendir my $dh, '/proc' or return \%by_pid;
+    foreach my $pid ( readdir $dh ) {
+        next unless $pid =~ /\A\d+\z/;
+        opendir my $fdh, "/proc/$pid/fd" or next;
+        my %seen;
+        foreach my $fd ( readdir $fdh ) {
+            my $link = readlink("/proc/$pid/fd/$fd") || '';
+            next unless $link =~ /\Asocket:\[(\d+)\]\z/;
+            foreach my $addr ( @{ $inodes->{$1} || [] } ) {
+                $seen{$addr} = 1;
+            }
+        }
+        closedir $fdh;
+        $by_pid{$pid} = [ sort keys %seen ] if %seen;
+    }
+    closedir $dh;
+    return \%by_pid;
+}
+
+sub _listen_inodes {
+    my %by_inode;
+    foreach my $file (qw(/proc/net/tcp /proc/net/tcp6)) {
+        open my $fh, '<', $file or next;
+        while ( my $line = <$fh> ) {
+            next if $line =~ /local_address/;
+            my @field = split /\s+/, $line;
+            shift @field if defined $field[0] && $field[0] eq '';
+            next unless @field >= 10 && $field[3] eq '0A';
+            my ( $hexip, $hexport ) = split /:/, $field[1], 2;
+            next unless defined $hexport;
+            my $addr = _decode_addr($hexip) . ':' . hex($hexport);
+            push @{ $by_inode{ $field[9] } }, $addr;
+        }
+        close $fh;
+    }
+    return \%by_inode;
+}
+
+sub _decode_addr {
+    my ($hex) = @_;
+    if ( length($hex) == 8 ) {
+        my @byte = reverse map { hex $_ } ( $hex =~ /../g );
+        return join '.', @byte;
+    }
+    return '::' unless length($hex) == 32;
+    my @parts;
+    for ( my $i = 0 ; $i < 32 ; $i += 8 ) {
+        my $chunk = substr $hex, $i, 8;
+        my @byte = reverse map { hex $_ } ( $chunk =~ /../g );
+        push @parts, sprintf '%02x%02x', @byte[ 0, 1 ];
+        push @parts, sprintf '%02x%02x', @byte[ 2, 3 ];
+    }
+    return join ':', @parts;
+}
+
+sub _ports_for_app {
+    my ( $user, $home, $rel, $by_pid ) = @_;
+    return () if $rel eq '';
+    my $root = "$home/$rel";
+    my $real = Cwd::realpath($root) || $root;
+    my $uid  = ( getpwnam($user) )[2];
+    return () unless defined $uid;
+    my %seen;
+    foreach my $pid ( keys %{$by_pid} ) {
+        next if _process_uid($pid) != $uid;
+        my $cwd = readlink("/proc/$pid/cwd") || '';
+        next if $cwd eq '';
+        my $cwd_real = Cwd::realpath($cwd) || $cwd;
+        next unless $cwd_real eq $real || index( $cwd_real, $real . '/' ) == 0;
+        $seen{$_} = 1 foreach @{ $by_pid->{$pid} };
+    }
+    return sort keys %seen;
 }
 
 sub versions { NodeApps::list_versions() }

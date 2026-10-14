@@ -1,0 +1,25 @@
+#!/usr/local/cpanel/3rdparty/bin/perl
+use strict;
+use warnings;
+
+use lib '/usr/local/nodeapps/lib';
+use NodeApps ();
+
+die "This helper must run as root.\n" if $> != 0;
+
+my $action = $ARGV[0] || '--apply';
+if ( $action eq '--clear' ) {
+    NodeApps::Admin::clear_cpu_limits();
+    print "Cleared Node.js CPU groups.\n";
+    exit 0;
+}
+if ( $action eq '--apply' ) {
+    my $result = NodeApps::Admin::apply_cpu_limits();
+    if ( !$result->{ok} ) {
+        warn( ( $result->{message} || 'Could not apply CPU limits.' ) . "\n" );
+        exit 1;
+    }
+    exit 0;
+}
+
+die "Use --apply or --clear.\n";

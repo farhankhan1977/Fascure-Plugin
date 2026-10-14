@@ -20,6 +20,11 @@ install -m 0755 "$SRC/bin/nodeapps-apply" /usr/local/nodeapps/bin/nodeapps-apply
 install -m 0755 "$SRC/bin/nodeapps-quota" /usr/local/nodeapps/bin/nodeapps-quota
 install -m 0755 "$SRC/bin/nodeapps-license-check" /usr/local/nodeapps/bin/nodeapps-license-check
 install -m 0755 "$SRC/bin/nodeapps-license-check" /etc/cron.daily/nodeapps-license
+install -m 0755 "$SRC/bin/nodeapps-cpu" /usr/local/nodeapps/bin/nodeapps-cpu
+cat > /etc/cron.d/nodeapps-cpu <<'EOF'
+* * * * * root /usr/local/nodeapps/bin/nodeapps-cpu --apply >/dev/null 2>&1
+EOF
+chmod 0644 /etc/cron.d/nodeapps-cpu
 cat > /etc/sudoers.d/nodeapps <<'EOF'
 Defaults!/usr/local/nodeapps/bin/nodeapps-apply !requiretty
 Defaults!/usr/local/nodeapps/bin/nodeapps-quota !requiretty

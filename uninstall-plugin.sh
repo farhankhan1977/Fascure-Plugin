@@ -42,16 +42,22 @@ rm -rf /usr/local/cpanel/whostmgr/docroot/cgi/nodeapps
 rm -f /var/cpanel/apps/nodeapps.conf
 rm -f /etc/sudoers.d/nodeapps
 rm -f /etc/cron.daily/nodeapps-license
+if [[ -x /usr/local/nodeapps/bin/nodeapps-cpu ]]; then
+    /usr/local/nodeapps/bin/nodeapps-cpu --clear || true
+fi
+rm -f /etc/cron.d/nodeapps-cpu
 rm -f /usr/local/nodeapps/bin/nodeapps-apply \
     /usr/local/nodeapps/bin/nodeapps-quota \
-    /usr/local/nodeapps/bin/nodeapps-license-check
+    /usr/local/nodeapps/bin/nodeapps-license-check \
+    /usr/local/nodeapps/bin/nodeapps-cpu
 rm -f /usr/local/nodeapps/lib/NodeApps.pm \
     /usr/local/nodeapps/lib/license-public.pem \
     /usr/local/nodeapps/lib/license-aes.hex \
     /usr/local/nodeapps/lib/license-hmac.hex
 rm -f /var/cpanel/nodeapps/license.key \
     /var/cpanel/nodeapps/license-cache.json \
-    /var/cpanel/nodeapps/license-apps-stopped
+    /var/cpanel/nodeapps/license-apps-stopped \
+    /var/cpanel/nodeapps/cpu.json
 
 if [[ -d /etc/apache2/conf.d/userdata ]]; then
     find /etc/apache2/conf.d/userdata -type f -name nodeapps.conf -delete

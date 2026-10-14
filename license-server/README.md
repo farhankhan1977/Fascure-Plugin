@@ -47,6 +47,16 @@ Generate or renew, used by the store. Send `Authorization: Bearer <token>`.
 
 `expires_at` (`YYYY-MM-DD HH:MM:SS`) can be sent instead of `days`.
 
+Free Basic license, used by the WHM button. No token. The license is issued to the public IP that connects. It allows 1 account and 1 application for 3 months. The same server can renew it during the last 14 days, or after it expires. A click earlier than that returns the current key and does not extend it. An IP that already has an active paid license is refused.
+
+`POST /api/free.php`
+
+```json
+{}
+```
+
+On a server that is already installed, upload `api/free.php` and `lib/licenses.php`. Do not run `install.php` again.
+
 Create the bearer token in **API tokens**. A token has a total generation cap and a separate cap for Basic, Standard, and Enterprise. A plan cap of 0 means that plan cannot be issued. Each successful generate or renew counts against both caps.
 
 The admin pages can also create, renew, and revoke licenses without an API token.

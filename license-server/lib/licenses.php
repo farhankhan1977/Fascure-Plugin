@@ -102,6 +102,73 @@ function renew_license($key, $ip, $expiresAt)
     return find_license($key);
 }
 
+function public_ip($ip)
+{
+    return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false;
+}
+
+function issue_free_license($ip)
+{
+    if (!public_ip($ip)) {
+        throw new InvalidArgumentException('The free license is issued to the public IP that contacts this server.');
+    }
+    $pdo = db();
+    $lockName = 'fascure_free_' . md5($ip);
+    $lock = $pdo->prepare('SELECT GET_LOCK(?, 10)');
+    $lock->execute(array($lockName));
+    if ((int) $lock->fetchColumn() !== 1) {
+        throw new RuntimeException('Could not issue a free license right now.');
+    }
+    try {
+        $stmt = $pdo->prepare('SELECT * FROM licenses WHERE ip_address = ? ORDER BY id DESC');
+        $stmt->execute(array($ip));
+        $rows = $stmt->fetchAll();
+        $free = null;
+        foreach ($rows as $row) {
+            if ($row['status'] === 'revoked') {
+                continue;
+            }
+            $expired = strtotime($row['expires_at']) < time();
+            $isFree = $row['plan'] === 'basic' && $row['note'] === 'free';
+            if (!$isFree && !$expired) {
+                throw new InvalidArgumentException('This IP already has a paid license until ' . $row['expires_at'] . '.');
+            }
+            if ($isFree && $free === null) {
+                $free = $row;
+            }
+        }
+        $expires = date('Y-m-d H:i:s', strtotime('+3 months'));
+        if ($free) {
+            $remaining = strtotime($free['expires_at']) - time();
+            if ($remaining > 14 * 86400) {
+                $public = license_public_row($free, $ip);
+                $public['ok'] = true;
+                $public['action'] = 'current';
+                $public['message'] = 'This server already has a free Basic license until ' . $free['expires_at'] . '. Renew it during the last 14 days.';
+                return $public;
+            }
+            if ($remaining > 0) {
+                $expires = date('Y-m-d H:i:s', strtotime($free['expires_at'] . ' +3 months'));
+            }
+            $row = renew_license($free['license_key'], $ip, $expires);
+            record_event($row['id'], null, 'free_renew', $ip, 'basic');
+            $public = license_public_row($row, $ip);
+            $public['action'] = 'renew';
+            $public['message'] = 'Free Basic license renewed until ' . $row['expires_at'] . '.';
+            return $public;
+        }
+        $row = create_license('basic', $ip, $expires, 'free');
+        record_event($row['id'], null, 'free_generate', $ip, 'basic');
+        $public = license_public_row($row, $ip);
+        $public['action'] = 'generate';
+        $public['message'] = 'Free Basic license issued until ' . $row['expires_at'] . '. It allows 1 account and 1 application.';
+        return $public;
+    } finally {
+        $release = $pdo->prepare('SELECT RELEASE_LOCK(?)');
+        $release->execute(array($lockName));
+    }
+}
+
 function bearer_token()
 {
     $header = '';

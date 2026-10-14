@@ -33,11 +33,13 @@ The installer copies the plugin into cPanel, registers **Fascure Node.js App** i
 
 Purchase a license at [https://fascure-hosting.com](https://fascure-hosting.com). After checkout, paste the key in **WHM → Fascure Node.js App**.
 
+Basic is free for 3 months: 1 account and 1 application. In **WHM → Fascure Node.js App**, choose **Get free license**. The license server issues that key to the public IP that makes the request. Choose **Renew free license** every 3 months. Renewal is accepted during the last 14 days, and after the free license expires.
+
 The license server at `https://plugin.fascure-hosting.com` must stay online. The plugin verifies the license key once a day, and it keeps working only while that check succeeds. The license server compares that connection's IP and the expiry date with the license. A different IP, an expired license, or a revoked license turns the plugin off.
 
 | Plan | Accounts | Applications on each account |
 | --- | --- | --- |
-| Basic | 1 | 1 |
+| Basic (free) | 1 | 1 |
 | Standard | 10 | 3 |
 | Enterprise | unlimited | unlimited |
 
@@ -53,6 +55,12 @@ After the license key is saved:
 1. In **WHM → Fascure Node.js App**, install Passenger if it is not already loaded.
 2. Install the Node.js versions customers may select, such as `20` or `22`.
 3. Choose one installed version as the default.
+
+## Accounts in WHM
+
+**WHM → Fascure Node.js App** lists every hosting account whose feature list allows the plugin. Each account can be given a CPU limit there. The number is a percentage of one CPU core: **100** is one core, and **0** removes the limit. On a server with 6 cores the highest useful value is 600. The limit applies to that account's Node.js and Next.js processes, not to the rest of the website.
+
+The same page lists every application with its account, domain, folder, URL, and status. **Running** means the process is listening. **Idle** means it is enabled and Passenger will start it on the next visit. **Stopped** means it was turned off. The port shown is the internal `127.0.0.1` port for that running application. Each running application gets its own port.
 
 ## Where to put application files
 

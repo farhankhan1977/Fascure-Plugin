@@ -48,7 +48,8 @@ if (!$rows) {
 }
 foreach ($rows as $row) {
     $state = $row['status'] === 'revoked' ? 'revoked' : (strtotime($row['expires_at']) < time() ? 'expired' : 'active');
-    $body .= '<tr><td><code>' . h($row['license_key']) . '</code></td><td>' . h($row['plan']) . '</td><td>' . h($row['ip_address']) . '</td><td>' . h($row['expires_at']) . '</td><td>' . h($state) . '</td><td>';
+    $planLabel = $row['plan'] . ($row['note'] === 'free' ? ' (free)' : '');
+    $body .= '<tr><td><code>' . h($row['license_key']) . '</code></td><td>' . h($planLabel) . '</td><td>' . h($row['ip_address']) . '</td><td>' . h($row['expires_at']) . '</td><td>' . h($state) . '</td><td>';
     if ($state !== 'revoked') {
         $body .= '<form method="post"><input type="hidden" name="csrf" value="' . $csrf . '"><input type="hidden" name="action" value="renew"><input type="hidden" name="license_key" value="' . h($row['license_key']) . '">';
         $body .= '<input name="ip" value="' . h($row['ip_address']) . '" style="max-width:150px"> ';

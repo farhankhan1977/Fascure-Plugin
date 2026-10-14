@@ -31,6 +31,10 @@ if ( ( $ENV{REQUEST_METHOD} || '' ) eq 'POST' ) {
             my $saved = NodeApps::save_license( $form{key} || '' );
             $notice = $saved->{message};
         }
+        elsif ( $action eq 'free' ) {
+            my $saved = NodeApps::claim_free_license();
+            $notice = $saved->{message};
+        }
         elsif ( !NodeApps::license_status()->{licensed} ) {
             die NodeApps::license_status()->{message} . "\n";
         }
@@ -50,6 +54,15 @@ if ( ( $ENV{REQUEST_METHOD} || '' ) eq 'POST' ) {
             my $job = NodeApps::Admin::ensure_passenger();
             $notice = "Passenger installation started (pid $job->{pid}). Refresh this page and check the log below.";
         }
+        elsif ( $action eq 'cpu' ) {
+            my $saved = NodeApps::Admin::set_cpu_limit( $form{user} || '', $form{percent} );
+            if ( $saved->{ok} ) {
+                $notice = $saved->{message};
+            }
+            else {
+                $error = $saved->{message};
+            }
+        }
         else {
             die "Unknown action.\n";
         }
@@ -64,6 +77,18 @@ my $versions = NodeApps::list_versions();
 my $default  = NodeApps::default_version();
 my $passenger = passenger_loaded();
 my $license = NodeApps::license_status();
+my $overview = { cores => 1, cpu_max => 100, cpu_ready => 0, tenants => [], applications => [] };
+if ( $license->{licensed} ) {
+    my $loaded = eval { NodeApps::Admin::server_overview() };
+    if ($loaded) {
+        $overview = $loaded;
+    }
+    else {
+        my $msg = $@ || 'Could not read the account list.';
+        $msg =~ s/\s+\z//;
+        $error = $error eq '' ? $msg : "$error $msg";
+    }
+}
 my $log = '';
 if ( open my $fh, '<', '/var/log/nodeapps-passenger.log' ) {
     my @lines = <$fh>;
@@ -80,7 +105,8 @@ eval {
 
 print <<'HTML';
 <style>
-.na { font-family: Arial, sans-serif; color: #1f2933; max-width: 860px; }
+.na { font-family: Arial, sans-serif; color: #1f2933; max-width: 1120px; }
+.na .muted { color: #52606d; font-size: 13px; }
 .na h2 { margin-top: 0; }
 .na .card { border: 1px solid #d5dde5; border-radius: 8px; padding: 16px; margin: 12px 0; background: #fff; }
 .na .ok { background: #e8f5e9; padding: 10px; border-radius: 6px; }
@@ -111,14 +137,63 @@ print <<'HTML';
 <p><input type="text" name="key" placeholder="FSCP-...." style="width:100%" required></p>
 <button type="submit">Save license key</button>
 </form>
-</div>
 HTML
+my $paid = $license->{licensed} && ( $license->{plan} || '' ) =~ /\A(?:standard|enterprise)\z/;
+unless ($paid) {
+    my $free_label = ( $license->{plan} || '' ) eq 'basic' ? 'Renew free license' : 'Get free license';
+    print '<p>Basic is free for 3 months: 1 account and 1 application. The license is issued to this server\'s public IP. Renew it here every 3 months. The renewal is accepted during the last 14 days, and after the free license expires.</p>';
+    print '<form method="post"><input type="hidden" name="action" value="free"><button type="submit">' . esc($free_label) . '</button></form>';
+}
+print '</div>';
 
 if ( !$license->{licensed} ) {
     print '</div>';
     eval { Whostmgr::HTMLInterface::deffooter(); };
     exit 0;
 }
+
+my $cores = $overview->{cores} || 1;
+my $cpu_max = $overview->{cpu_max} || ( $cores * 100 );
+print '<div class="card"><h3>Accounts</h3>';
+print '<p>These hosting accounts are allowed to use Fascure Node.js App. The CPU limit is a percentage of one core. <strong>100</strong> is one full core. This server has <strong>' . esc($cores) . '</strong> cores, so the highest value is <strong>' . esc($cpu_max) . '</strong>. <strong>0</strong> removes the limit. The limit applies to that account\'s Node.js and Next.js processes.</p>';
+print '<p class="muted">The CPU controller is not available, so a saved percentage cannot be enforced yet.</p>' unless $overview->{cpu_ready};
+print '<table><tr><th>Account</th><th>Domain</th><th>Applications</th><th>CPU %</th></tr>';
+if ( !@{ $overview->{tenants} } ) {
+    print '<tr><td colspan="4">No hosting account has Fascure Node.js App enabled.</td></tr>';
+}
+foreach my $tenant ( @{ $overview->{tenants} } ) {
+    print '<tr><td>' . esc( $tenant->{user} ) . '</td>';
+    print '<td>' . esc( $tenant->{domain} ) . '</td>';
+    print '<td>' . esc( $tenant->{apps} ) . '</td><td>';
+    print '<form method="post">';
+    print '<input type="hidden" name="action" value="cpu">';
+    print '<input type="hidden" name="user" value="' . esc( $tenant->{user} ) . '">';
+    print '<input type="number" name="percent" min="0" max="' . esc($cpu_max) . '" step="1" value="' . esc( $tenant->{cpu} ) . '" required style="width:90px"> ';
+    print '<button type="submit">Save</button></form></td></tr>';
+}
+print '</table></div>';
+
+print '<div class="card"><h3>Applications</h3>';
+print '<p class="muted">Running means a process is listening. Idle means the application is enabled and will start on the next visit. The port is internal to this server and is different for each running application.</p>';
+print '<table><tr><th>Account</th><th>Domain</th><th>Application</th><th>Type</th><th>Folder</th><th>URL</th><th>Status</th><th>Port</th></tr>';
+if ( !@{ $overview->{applications} } ) {
+    print '<tr><td colspan="8">No applications have been created.</td></tr>';
+}
+foreach my $app ( @{ $overview->{applications} } ) {
+    my $state = $app->{state} eq 'running' ? 'Running' : ( $app->{state} eq 'idle' ? 'Idle' : 'Stopped' );
+    $state = 'Stopped (license)' if $state eq 'Stopped' && ( $app->{reason} || '' ) eq 'license';
+    print '<tr>';
+    print '<td>' . esc( $app->{user} ) . '</td>';
+    print '<td>' . esc( $app->{domain} ) . '</td>';
+    print '<td>' . esc( $app->{id} ) . '</td>';
+    print '<td>' . esc( $app->{type} ) . '</td>';
+    print '<td>' . esc( $app->{folder} ) . '</td>';
+    print '<td>' . esc( $app->{uri} ) . '</td>';
+    print '<td>' . esc($state) . '</td>';
+    print '<td>' . esc( $app->{port} || '—' ) . '</td>';
+    print '</tr>';
+}
+print '</table></div>';
 
 print $passenger
     ? '<div class="ok">Passenger is loaded in Apache.</div>'
