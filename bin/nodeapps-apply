@@ -56,6 +56,29 @@ foreach my $domain ( sort keys %{$confs} ) {
 
 my $rebuild = '/usr/local/cpanel/scripts/rebuildhttpdconf';
 my $restart = '/usr/local/cpanel/scripts/restartsrv_httpd';
-system($rebuild) == 0 or die "Could not rebuild the web server configuration.\n";
-system($restart) == 0 or die "Could not restart the web server.\n";
+_run_quiet($rebuild) == 0 or die "Could not rebuild the web server configuration.\n";
+_run_quiet($restart) == 0 or die "Could not restart the web server.\n";
 exit 0;
+
+# cPanel UAPI reads this process's standard output. The rebuild and restart
+# scripts print progress there, which makes the customer page report a failure
+# after the application has already been started.
+sub _run_quiet {
+    my (@cmd) = @_;
+    my $log = '/var/cpanel/nodeapps/apply.log';
+    open my $oldout, '>&', \*STDOUT or return system(@cmd);
+    open my $olderr, '>&', \*STDERR or return system(@cmd);
+    my $opened = open STDOUT, '>>', $log;
+    $opened &&= open STDERR, '>>', $log;
+    unless ($opened) {
+        open STDOUT, '>&', $oldout;
+        open STDERR, '>&', $olderr;
+        return system(@cmd);
+    }
+    my $rc = system(@cmd);
+    open STDOUT, '>&', $oldout;
+    open STDERR, '>&', $olderr;
+    close $oldout;
+    close $olderr;
+    return $rc;
+}

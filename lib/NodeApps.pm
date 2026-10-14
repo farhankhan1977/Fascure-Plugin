@@ -235,7 +235,7 @@ sub claim_free_license {
     );
     my $data = eval { JSON::PP->new->utf8->decode( $res->{content} || '' ) };
     die "The license server did not answer.\n" unless ref $data eq 'HASH';
-    die ( $data->{message} || "The license server rejected the free license.\n" ) . "\n" unless $data->{ok};
+    die( ( $data->{message} || "The license server rejected the free license." ) . "\n" ) unless $data->{ok};
     my $saved = save_license( $data->{license_key} || '' );
     $saved->{message} = $data->{message} || $saved->{message};
     return $saved;
