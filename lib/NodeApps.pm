@@ -41,6 +41,7 @@ sub ensure_state {
     my $dir = $self->state_dir;
     make_path( $dir, { mode => 0700 } ) unless -d $dir;
     chmod 0700, $dir;
+    $self->_own($dir);
     return $dir;
 }
 
@@ -586,6 +587,7 @@ sub create_app {
     }
 
     make_path( $abs, { mode => 0755 } );
+    $self->_own_under_home($abs);
     my $real = Cwd::realpath($abs) or die "Could not create the application directory.\n";
     $real = _untaint_abs($real) or die "Application path is not allowed.\n";
     die "Application root must stay inside your home directory.\n" unless _strict_under( $real, $self->{home} );
@@ -1218,6 +1220,34 @@ sub _save {
     $self->ensure_state;
     _write_json( $self->apps_file, $data );
     chmod 0600, $self->apps_file;
+    $self->_own( $self->apps_file );
+    return 1;
+}
+
+sub _own {
+    my ( $self, @paths ) = @_;
+    return 1 if $> != 0;
+    my ( $uid, $gid ) = ( getpwnam( $self->{user} ) )[ 2, 3 ];
+    return 0 unless defined $uid && defined $gid;
+    foreach my $path (@paths) {
+        next unless defined $path && $path ne '' && -e $path;
+        chown $uid, $gid, $path;
+    }
+    return 1;
+}
+
+sub _own_under_home {
+    my ( $self, $path ) = @_;
+    return 1 if $> != 0;
+    my $home = $self->{home};
+    return 0 unless defined $path && ( $path eq $home || _strict_under( $path, $home ) );
+    my $cursor = $home;
+    my $rel = $path eq $home ? '' : substr( $path, length($home) + 1 );
+    foreach my $part ( split m{/}, $rel ) {
+        next if $part eq '';
+        $cursor .= "/$part";
+        $self->_own($cursor);
+    }
     return 1;
 }
 
@@ -1234,6 +1264,7 @@ sub _lock {
     $self->ensure_state;
     my $path = File::Spec->catfile( $self->state_dir, 'lock' );
     open my $fh, '>>', $path or die "Could not lock application data: $!\n";
+    $self->_own($path);
     flock( $fh, LOCK_EX ) or die "Could not lock application data: $!\n";
     return $fh;
 }
