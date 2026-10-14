@@ -70,6 +70,7 @@ function env_to_text($env)
 
 $notice = '';
 $error = '';
+$posted_action = ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) ? $_POST['action'] : '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = isset($_POST['action']) ? $_POST['action'] : '';
     $params = array();
@@ -192,6 +193,7 @@ foreach ($apps as $app) {
 .nodeapps pre { padding: 10px; overflow: auto; max-height: 220px; }
 .nodeapps table { width: 100%; border-collapse: collapse; }
 .nodeapps td { padding: 4px 0; vertical-align: top; }
+.nodeapps [hidden] { display: none !important; }
 </style>
 <div class="nodeapps">
 <?php if ($running) { ?>
@@ -211,6 +213,104 @@ foreach ($apps as $app) {
 <?php } ?>
 <?php if ($licensed && !$versions) { ?>
 <div class="banner bad">No Node.js versions are installed. Add one from WHM under Fascure Node.js App.</div>
+<?php } ?>
+
+<?php foreach ($apps as $app) {
+    $log = '';
+    if (!empty($app['job']['log'])) {
+        list($log_ok, $log_data, $log_errors) = call_uapi($cpanel, 'read_log', array('id' => $app['id'], 'which' => preg_replace('/\.log$/', '', $app['job']['log'])));
+        if ($log_ok && is_array($log_data) && isset($log_data['log'])) {
+            $log = $log_data['log'];
+        }
+    }
+    $scheme = 'https';
+    foreach ($domains as $domain) {
+        if ($domain['domain'] === $app['domain'] && empty($domain['ssl'])) {
+            $scheme = 'http';
+        }
+    }
+    $href = $scheme . '://' . $app['domain'] . ($app['uri'] === '/' ? '/' : $app['uri']);
+?>
+<div class="card">
+<h3><?php print h($app['id']); ?> <span class="muted"><?php print h($app['type']); ?> · <?php print !empty($app['enabled']) ? 'running' : 'stopped'; ?></span></h3>
+<p><a href="<?php print h($href); ?>" target="_blank"><?php print h($href); ?></a></p>
+<?php if (!empty($app['stopped_reason']) && $app['stopped_reason'] === 'license') { ?>
+<p class="muted">This application was stopped because the server license is expired or no longer valid for this IP.</p>
+<?php } ?>
+<?php if (!$licensed) { ?>
+<p class="muted">Node.js <?php print h($app['version']); ?> · <?php print h($app['root']); ?>. Changes are unavailable until WHM has a license key.</p>
+</div>
+<?php continue; }
+    $edit_id = 'edit-' . $app['id'];
+    $edit_open = ($posted_action === 'update' && posted_app_name() === $app['id'] && $error !== '');
+?>
+<div class="row">
+<button type="button" class="secondary" onclick="var panel=document.getElementById('<?php print h($edit_id); ?>'); if (panel) panel.hidden=!panel.hidden;">Edit</button>
+<form method="post"><input type="hidden" name="action" value="npm"><input type="hidden" name="app_name" value="<?php print h($app['id']); ?>"><button class="secondary" type="submit">Run NPM Install</button></form>
+<?php if ($app['type'] === 'nextjs') { ?>
+<form method="post"><input type="hidden" name="action" value="build"><input type="hidden" name="app_name" value="<?php print h($app['id']); ?>"><button class="secondary" type="submit">Run next build</button></form>
+<?php } ?>
+<form method="post"><input type="hidden" name="action" value="restart"><input type="hidden" name="app_name" value="<?php print h($app['id']); ?>"><button class="secondary" type="submit">Restart</button></form>
+<?php if (!empty($app['enabled'])) { ?>
+<form method="post"><input type="hidden" name="action" value="stop"><input type="hidden" name="app_name" value="<?php print h($app['id']); ?>"><button class="secondary" type="submit">Stop App</button></form>
+<?php } else { ?>
+<form method="post"><input type="hidden" name="action" value="start"><input type="hidden" name="app_name" value="<?php print h($app['id']); ?>"><button type="submit">Start App</button></form>
+<?php } ?>
+</div>
+<div id="<?php print h($edit_id); ?>"<?php if (!$edit_open) { print ' hidden'; } ?>>
+<form method="post">
+<input type="hidden" name="action" value="update">
+<input type="hidden" name="app_name" value="<?php print h($app['id']); ?>">
+<table>
+<tr><td style="width:220px"><label>Node.js version</label></td><td>
+<select name="version">
+<?php foreach ($versions as $version) { ?>
+<option value="<?php print h($version); ?>"<?php if ($version === $app['version']) { print ' selected'; } ?>><?php print h($version); ?></option>
+<?php } ?>
+</select>
+</td></tr>
+<tr><td><label>Application mode</label></td><td>
+<select name="mode">
+<option value="production"<?php if ($app['mode'] === 'production') { print ' selected'; } ?>>Production</option>
+<option value="development"<?php if ($app['mode'] === 'development') { print ' selected'; } ?>>Development</option>
+</select>
+</td></tr>
+<tr><td><label>Application root</label></td><td><input type="text" value="<?php print h($app['root']); ?>" disabled></td></tr>
+<tr><td><label>Application URL</label></td><td>
+<div class="row">
+<select name="domain">
+<?php foreach ($domains as $domain) { ?>
+<option value="<?php print h($domain['domain']); ?>"<?php if ($domain['domain'] === $app['domain']) { print ' selected'; } ?>><?php print h($domain['domain']); ?></option>
+<?php } ?>
+</select>
+<input type="text" name="uri" value="<?php print h($app['uri']); ?>">
+</div>
+</td></tr>
+<tr><td><label>Application startup file</label></td><td><input type="text" name="startup" value="<?php print h($app['startup']); ?>"></td></tr>
+<tr><td><label>Environment variables</label></td><td><textarea name="env"><?php print h(env_to_text(isset($app['env']) ? $app['env'] : array())); ?></textarea></td></tr>
+</table>
+<p class="muted">Enter the virtual environment with:</p>
+<pre><?php print h($app['activate']); ?></pre>
+<div class="row"><button type="submit">Save</button></div>
+</form>
+</div>
+<form method="post" class="row">
+<input type="hidden" name="action" value="script">
+<input type="hidden" name="app_name" value="<?php print h($app['id']); ?>">
+<input type="text" name="script" placeholder="build" style="max-width:180px">
+<button class="secondary" type="submit">Run JS script</button>
+</form>
+<form method="post" class="row" onsubmit="return confirm('Delete this application?');">
+<input type="hidden" name="action" value="delete">
+<input type="hidden" name="app_name" value="<?php print h($app['id']); ?>">
+<label style="margin:0"><input type="checkbox" name="remove_files" value="1"> Also delete application files</label>
+<button class="danger" type="submit">Delete</button>
+</form>
+<?php if (!empty($app['job']['action'])) { ?>
+<p class="muted">Last task: <?php print h($app['job']['action']); ?><?php print !empty($app['job']['running']) ? ' (running)' : (isset($app['job']['exit']) ? ' (exit ' . h($app['job']['exit']) . ')' : ''); ?></p>
+<?php } ?>
+<?php if ($log !== '') { ?><pre><?php print h($log); ?></pre><?php } ?>
+</div>
 <?php } ?>
 
 <?php if ($licensed) { ?>
@@ -256,98 +356,6 @@ foreach ($apps as $app) {
 <label><input type="checkbox" name="scaffold" value="1" checked> Create starter files if they are missing</label>
 <div class="row"><button type="submit">Create</button></div>
 </form>
-</div>
-<?php } ?>
-
-<?php foreach ($apps as $app) {
-    $log = '';
-    if (!empty($app['job']['log'])) {
-        list($log_ok, $log_data, $log_errors) = call_uapi($cpanel, 'read_log', array('id' => $app['id'], 'which' => preg_replace('/\.log$/', '', $app['job']['log'])));
-        if ($log_ok && is_array($log_data) && isset($log_data['log'])) {
-            $log = $log_data['log'];
-        }
-    }
-    $scheme = 'https';
-    foreach ($domains as $domain) {
-        if ($domain['domain'] === $app['domain'] && empty($domain['ssl'])) {
-            $scheme = 'http';
-        }
-    }
-    $href = $scheme . '://' . $app['domain'] . ($app['uri'] === '/' ? '/' : $app['uri']);
-?>
-<div class="card">
-<h3><?php print h($app['id']); ?> <span class="muted"><?php print h($app['type']); ?> · <?php print !empty($app['enabled']) ? 'running' : 'stopped'; ?></span></h3>
-<p><a href="<?php print h($href); ?>" target="_blank"><?php print h($href); ?></a></p>
-<?php if (!empty($app['stopped_reason']) && $app['stopped_reason'] === 'license') { ?>
-<p class="muted">This application was stopped because the server license is expired or no longer valid for this IP.</p>
-<?php } ?>
-<?php if (!$licensed) { ?>
-<p class="muted">Node.js <?php print h($app['version']); ?> · <?php print h($app['root']); ?>. Changes are unavailable until WHM has a license key.</p>
-</div>
-<?php continue; } ?>
-<form method="post">
-<input type="hidden" name="action" value="update">
-<input type="hidden" name="app_name" value="<?php print h($app['id']); ?>">
-<table>
-<tr><td style="width:220px"><label>Node.js version</label></td><td>
-<select name="version">
-<?php foreach ($versions as $version) { ?>
-<option value="<?php print h($version); ?>"<?php if ($version === $app['version']) { print ' selected'; } ?>><?php print h($version); ?></option>
-<?php } ?>
-</select>
-</td></tr>
-<tr><td><label>Application mode</label></td><td>
-<select name="mode">
-<option value="production"<?php if ($app['mode'] === 'production') { print ' selected'; } ?>>Production</option>
-<option value="development"<?php if ($app['mode'] === 'development') { print ' selected'; } ?>>Development</option>
-</select>
-</td></tr>
-<tr><td><label>Application root</label></td><td><input type="text" value="<?php print h($app['root']); ?>" disabled></td></tr>
-<tr><td><label>Application URL</label></td><td>
-<div class="row">
-<select name="domain">
-<?php foreach ($domains as $domain) { ?>
-<option value="<?php print h($domain['domain']); ?>"<?php if ($domain['domain'] === $app['domain']) { print ' selected'; } ?>><?php print h($domain['domain']); ?></option>
-<?php } ?>
-</select>
-<input type="text" name="uri" value="<?php print h($app['uri']); ?>">
-</div>
-</td></tr>
-<tr><td><label>Application startup file</label></td><td><input type="text" name="startup" value="<?php print h($app['startup']); ?>"></td></tr>
-<tr><td><label>Environment variables</label></td><td><textarea name="env"><?php print h(env_to_text(isset($app['env']) ? $app['env'] : array())); ?></textarea></td></tr>
-</table>
-<div class="row"><button type="submit">Save</button></div>
-</form>
-<p class="muted">Enter the virtual environment with:</p>
-<pre><?php print h($app['activate']); ?></pre>
-<div class="row">
-<form method="post"><input type="hidden" name="action" value="npm"><input type="hidden" name="app_name" value="<?php print h($app['id']); ?>"><button class="secondary" type="submit">Run NPM Install</button></form>
-<?php if ($app['type'] === 'nextjs') { ?>
-<form method="post"><input type="hidden" name="action" value="build"><input type="hidden" name="app_name" value="<?php print h($app['id']); ?>"><button class="secondary" type="submit">Run next build</button></form>
-<?php } ?>
-<form method="post"><input type="hidden" name="action" value="restart"><input type="hidden" name="app_name" value="<?php print h($app['id']); ?>"><button class="secondary" type="submit">Restart</button></form>
-<?php if (!empty($app['enabled'])) { ?>
-<form method="post"><input type="hidden" name="action" value="stop"><input type="hidden" name="app_name" value="<?php print h($app['id']); ?>"><button class="secondary" type="submit">Stop App</button></form>
-<?php } else { ?>
-<form method="post"><input type="hidden" name="action" value="start"><input type="hidden" name="app_name" value="<?php print h($app['id']); ?>"><button type="submit">Start App</button></form>
-<?php } ?>
-</div>
-<form method="post" class="row">
-<input type="hidden" name="action" value="script">
-<input type="hidden" name="app_name" value="<?php print h($app['id']); ?>">
-<input type="text" name="script" placeholder="build" style="max-width:180px">
-<button class="secondary" type="submit">Run JS script</button>
-</form>
-<form method="post" class="row" onsubmit="return confirm('Delete this application?');">
-<input type="hidden" name="action" value="delete">
-<input type="hidden" name="app_name" value="<?php print h($app['id']); ?>">
-<label style="margin:0"><input type="checkbox" name="remove_files" value="1"> Also delete application files</label>
-<button class="danger" type="submit">Delete</button>
-</form>
-<?php if (!empty($app['job']['action'])) { ?>
-<p class="muted">Last task: <?php print h($app['job']['action']); ?><?php print !empty($app['job']['running']) ? ' (running)' : (isset($app['job']['exit']) ? ' (exit ' . h($app['job']['exit']) . ')' : ''); ?></p>
-<?php } ?>
-<?php if ($log !== '') { ?><pre><?php print h($log); ?></pre><?php } ?>
 </div>
 <?php } ?>
 </div>
