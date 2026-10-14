@@ -15,6 +15,9 @@ if [[ "${1:-}" == "--remove-node" ]]; then
 fi
 
 SRC="$(cd "$(dirname "$0")" && pwd)"
+if [[ ! -f "$SRC/install.json" && -f /usr/local/nodeapps/uninstall/install.json ]]; then
+    SRC=/usr/local/nodeapps/uninstall
+fi
 UNREGISTER="/usr/local/cpanel/bin/unregister_appconfig"
 UNINSTALL="/usr/local/cpanel/scripts/uninstall_plugin"
 
@@ -22,7 +25,17 @@ if [[ -f /var/cpanel/apps/nodeapps.conf && -x "$UNREGISTER" ]]; then
     "$UNREGISTER" /var/cpanel/apps/nodeapps.conf || true
 fi
 
-if [[ -x "$UNINSTALL" && -f "$SRC/install.json" ]]; then
+if [[ -x "$UNINSTALL" && -f "$SRC/install.json" && -f "$SRC/index.live.php" && -f "$SRC/nodeapps.svg" ]]; then
+    STAGE="$(mktemp -d)"
+    mkdir -p "$STAGE/nodeapps"
+    cp "$SRC/install.json" "$STAGE/install.json"
+    cp "$SRC/nodeapps.svg" "$STAGE/nodeapps.svg"
+    cp "$SRC/index.live.php" "$STAGE/nodeapps/index.live.php"
+    cp "$SRC/nodeapps.svg" "$STAGE/nodeapps/nodeapps.svg"
+    tar -C "$STAGE" -czf /root/nodeapps-plugin.tar.gz .
+    rm -rf "$STAGE"
+    "$UNINSTALL" /root/nodeapps-plugin.tar.gz || true
+elif [[ -x "$UNINSTALL" && -f "$SRC/install.json" && -f "$SRC/cpanel/nodeapps/index.live.php" ]]; then
     STAGE="$(mktemp -d)"
     mkdir -p "$STAGE/nodeapps"
     cp "$SRC/install.json" "$STAGE/install.json"
@@ -49,7 +62,9 @@ rm -f /etc/cron.d/nodeapps-cpu
 rm -f /usr/local/nodeapps/bin/nodeapps-apply \
     /usr/local/nodeapps/bin/nodeapps-quota \
     /usr/local/nodeapps/bin/nodeapps-license-check \
-    /usr/local/nodeapps/bin/nodeapps-cpu
+    /usr/local/nodeapps/bin/nodeapps-cpu \
+    /usr/local/nodeapps/bin/uninstall-FS-plugin.sh
+rm -rf /usr/local/nodeapps/uninstall
 rm -f /usr/local/nodeapps/lib/NodeApps.pm \
     /usr/local/nodeapps/lib/license-public.pem \
     /usr/local/nodeapps/lib/license-aes.hex \

@@ -165,16 +165,16 @@ The URL folder `public_html/my-site/` is created by the plugin. It is not the pl
 
 ## Uninstall
 
-The uninstaller is named `uninstall-FS-plugin.sh` so it is only the Fascure Node.js App uninstaller. On the cPanel server, as root, from a checkout of this repository:
+Installation copies the Fascure uninstaller to a fixed path. On the cPanel server, as root, from any directory:
 
 ```bash
-bash uninstall-FS-plugin.sh
+bash /usr/local/nodeapps/bin/uninstall-FS-plugin.sh
 ```
 
 To also delete the Node.js builds installed for the plugin:
 
 ```bash
-bash uninstall-FS-plugin.sh --remove-node
+bash /usr/local/nodeapps/bin/uninstall-FS-plugin.sh --remove-node
 ```
 
 The uninstaller removes the WHM page, the cPanel page, the license check, and the Passenger configuration for plugin applications. It stops those applications from answering on the web.
@@ -188,7 +188,7 @@ It does not delete project files already uploaded to an account. Those stay in f
 - Node.js builds under `/opt/nodeapps/versions`
 - Account applications recorded in the account home, `.nodeapps/apps.json`
 - Apache Passenger configuration for each application, written for that account only
-- Uninstaller: `uninstall-FS-plugin.sh`
+- Uninstaller: `/usr/local/nodeapps/bin/uninstall-FS-plugin.sh`
 
 ## Trademarks
 

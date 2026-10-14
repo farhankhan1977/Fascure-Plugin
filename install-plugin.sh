@@ -21,6 +21,11 @@ install -m 0755 "$SRC/bin/nodeapps-quota" /usr/local/nodeapps/bin/nodeapps-quota
 install -m 0755 "$SRC/bin/nodeapps-license-check" /usr/local/nodeapps/bin/nodeapps-license-check
 install -m 0755 "$SRC/bin/nodeapps-license-check" /etc/cron.daily/nodeapps-license
 install -m 0755 "$SRC/bin/nodeapps-cpu" /usr/local/nodeapps/bin/nodeapps-cpu
+install -m 0755 "$SRC/uninstall-FS-plugin.sh" /usr/local/nodeapps/bin/uninstall-FS-plugin.sh
+install -d -m 0755 /usr/local/nodeapps/uninstall
+install -m 0644 "$SRC/install.json" /usr/local/nodeapps/uninstall/install.json
+install -m 0644 "$SRC/cpanel/nodeapps/index.live.php" /usr/local/nodeapps/uninstall/index.live.php
+install -m 0644 "$SRC/cpanel/nodeapps/nodeapps.svg" /usr/local/nodeapps/uninstall/nodeapps.svg
 cat > /etc/cron.d/nodeapps-cpu <<'EOF'
 * * * * * root /usr/local/nodeapps/bin/nodeapps-cpu --apply >/dev/null 2>&1
 EOF
@@ -68,3 +73,4 @@ rm -f /etc/apache2/conf.d/zzz-nodeapps-passenger.conf
 
 echo "Node.js / Next.js plugin files are installed."
 echo "Open WHM -> Fascure Node.js App and save a license key before customers can create applications."
+echo "Uninstall later with: bash /usr/local/nodeapps/bin/uninstall-FS-plugin.sh"
