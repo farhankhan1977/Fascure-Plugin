@@ -1317,7 +1317,10 @@ sub _untaint_user {
 
 sub _untaint_app_id {
     my ($id) = @_;
-    return unless defined $id && $id =~ /\A([a-z0-9](?:[a-z0-9-]{0,31}))\z/;
+    return unless defined $id;
+    $id = lc $id;
+    $id =~ s/\A\s+|\s+\z//g;
+    return unless $id =~ /\A([a-z0-9](?:[a-z0-9-]{0,31}))\z/;
     return $1;
 }
 

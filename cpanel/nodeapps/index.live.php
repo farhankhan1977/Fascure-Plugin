@@ -9,6 +9,15 @@ function h($value)
     return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 }
 
+function posted_app_name()
+{
+    $name = '';
+    if (isset($_POST['app_name']) && !is_array($_POST['app_name'])) {
+        $name = $_POST['app_name'];
+    }
+    return strtolower(trim((string) $name));
+}
+
 function call_uapi($cpanel, $func, $params = array())
 {
     $raw = $cpanel->uapi('NodeApp', $func, $params);
@@ -66,7 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $params = array();
     if ($action === 'create') {
         $params = array(
-            'id' => isset($_POST['id']) ? $_POST['id'] : '',
+            'id' => posted_app_name(),
             'type' => isset($_POST['type']) ? $_POST['type'] : 'nodejs',
             'mode' => isset($_POST['mode']) ? $_POST['mode'] : 'production',
             'root' => isset($_POST['root']) ? $_POST['root'] : '',
@@ -80,7 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         list($ok, $data, $errors) = call_uapi($cpanel, 'create_app', $params);
     } elseif ($action === 'update') {
         $params = array(
-            'id' => isset($_POST['id']) ? $_POST['id'] : '',
+            'id' => posted_app_name(),
             'mode' => isset($_POST['mode']) ? $_POST['mode'] : '',
             'domain' => isset($_POST['domain']) ? $_POST['domain'] : '',
             'uri' => isset($_POST['uri']) ? $_POST['uri'] : '/',
@@ -90,23 +99,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         );
         list($ok, $data, $errors) = call_uapi($cpanel, 'update_app', $params);
     } elseif ($action === 'npm') {
-        list($ok, $data, $errors) = call_uapi($cpanel, 'run_npm_install', array('id' => $_POST['id']));
+        list($ok, $data, $errors) = call_uapi($cpanel, 'run_npm_install', array('id' => posted_app_name()));
     } elseif ($action === 'build') {
-        list($ok, $data, $errors) = call_uapi($cpanel, 'run_next_build', array('id' => $_POST['id']));
+        list($ok, $data, $errors) = call_uapi($cpanel, 'run_next_build', array('id' => posted_app_name()));
     } elseif ($action === 'script') {
         list($ok, $data, $errors) = call_uapi($cpanel, 'run_script', array(
-            'id' => $_POST['id'],
+            'id' => posted_app_name(),
             'script' => isset($_POST['script']) ? $_POST['script'] : '',
         ));
     } elseif ($action === 'restart') {
-        list($ok, $data, $errors) = call_uapi($cpanel, 'restart_app', array('id' => $_POST['id']));
+        list($ok, $data, $errors) = call_uapi($cpanel, 'restart_app', array('id' => posted_app_name()));
     } elseif ($action === 'stop') {
-        list($ok, $data, $errors) = call_uapi($cpanel, 'set_enabled', array('id' => $_POST['id'], 'enabled' => 0));
+        list($ok, $data, $errors) = call_uapi($cpanel, 'set_enabled', array('id' => posted_app_name(), 'enabled' => 0));
     } elseif ($action === 'start') {
-        list($ok, $data, $errors) = call_uapi($cpanel, 'set_enabled', array('id' => $_POST['id'], 'enabled' => 1));
+        list($ok, $data, $errors) = call_uapi($cpanel, 'set_enabled', array('id' => posted_app_name(), 'enabled' => 1));
     } elseif ($action === 'delete') {
         list($ok, $data, $errors) = call_uapi($cpanel, 'delete_app', array(
-            'id' => $_POST['id'],
+            'id' => posted_app_name(),
             'remove_files' => empty($_POST['remove_files']) ? 0 : 1,
         ));
     } else {
@@ -210,7 +219,7 @@ foreach ($apps as $app) {
 <form method="post">
 <input type="hidden" name="action" value="create">
 <label>Application name</label>
-<input type="text" name="id" placeholder="my-app" required pattern="[a-z0-9][a-z0-9-]{0,31}">
+<input type="text" name="app_name" placeholder="my-app" required pattern="[A-Za-z0-9][A-Za-z0-9-]{0,31}">
 <label>Application type</label>
 <select name="type">
 <option value="nodejs">Node.js</option>
@@ -278,7 +287,7 @@ foreach ($apps as $app) {
 <?php continue; } ?>
 <form method="post">
 <input type="hidden" name="action" value="update">
-<input type="hidden" name="id" value="<?php print h($app['id']); ?>">
+<input type="hidden" name="app_name" value="<?php print h($app['id']); ?>">
 <table>
 <tr><td style="width:220px"><label>Node.js version</label></td><td>
 <select name="version">
@@ -312,26 +321,26 @@ foreach ($apps as $app) {
 <p class="muted">Enter the virtual environment with:</p>
 <pre><?php print h($app['activate']); ?></pre>
 <div class="row">
-<form method="post"><input type="hidden" name="action" value="npm"><input type="hidden" name="id" value="<?php print h($app['id']); ?>"><button class="secondary" type="submit">Run NPM Install</button></form>
+<form method="post"><input type="hidden" name="action" value="npm"><input type="hidden" name="app_name" value="<?php print h($app['id']); ?>"><button class="secondary" type="submit">Run NPM Install</button></form>
 <?php if ($app['type'] === 'nextjs') { ?>
-<form method="post"><input type="hidden" name="action" value="build"><input type="hidden" name="id" value="<?php print h($app['id']); ?>"><button class="secondary" type="submit">Run next build</button></form>
+<form method="post"><input type="hidden" name="action" value="build"><input type="hidden" name="app_name" value="<?php print h($app['id']); ?>"><button class="secondary" type="submit">Run next build</button></form>
 <?php } ?>
-<form method="post"><input type="hidden" name="action" value="restart"><input type="hidden" name="id" value="<?php print h($app['id']); ?>"><button class="secondary" type="submit">Restart</button></form>
+<form method="post"><input type="hidden" name="action" value="restart"><input type="hidden" name="app_name" value="<?php print h($app['id']); ?>"><button class="secondary" type="submit">Restart</button></form>
 <?php if (!empty($app['enabled'])) { ?>
-<form method="post"><input type="hidden" name="action" value="stop"><input type="hidden" name="id" value="<?php print h($app['id']); ?>"><button class="secondary" type="submit">Stop App</button></form>
+<form method="post"><input type="hidden" name="action" value="stop"><input type="hidden" name="app_name" value="<?php print h($app['id']); ?>"><button class="secondary" type="submit">Stop App</button></form>
 <?php } else { ?>
-<form method="post"><input type="hidden" name="action" value="start"><input type="hidden" name="id" value="<?php print h($app['id']); ?>"><button type="submit">Start App</button></form>
+<form method="post"><input type="hidden" name="action" value="start"><input type="hidden" name="app_name" value="<?php print h($app['id']); ?>"><button type="submit">Start App</button></form>
 <?php } ?>
 </div>
 <form method="post" class="row">
 <input type="hidden" name="action" value="script">
-<input type="hidden" name="id" value="<?php print h($app['id']); ?>">
+<input type="hidden" name="app_name" value="<?php print h($app['id']); ?>">
 <input type="text" name="script" placeholder="build" style="max-width:180px">
 <button class="secondary" type="submit">Run JS script</button>
 </form>
 <form method="post" class="row" onsubmit="return confirm('Delete this application?');">
 <input type="hidden" name="action" value="delete">
-<input type="hidden" name="id" value="<?php print h($app['id']); ?>">
+<input type="hidden" name="app_name" value="<?php print h($app['id']); ?>">
 <label style="margin:0"><input type="checkbox" name="remove_files" value="1"> Also delete application files</label>
 <button class="danger" type="submit">Delete</button>
 </form>
