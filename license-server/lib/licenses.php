@@ -120,43 +120,25 @@ function issue_free_license($ip)
         throw new RuntimeException('Could not issue a free license right now.');
     }
     try {
-        $stmt = $pdo->prepare('SELECT * FROM licenses WHERE ip_address = ? ORDER BY id DESC');
+        $stmt = $pdo->prepare('SELECT * FROM licenses WHERE ip_address = ? AND status <> "revoked" ORDER BY id DESC');
         $stmt->execute(array($ip));
-        $rows = $stmt->fetchAll();
-        $free = null;
-        foreach ($rows as $row) {
-            if ($row['status'] === 'revoked') {
-                continue;
-            }
-            $expired = strtotime($row['expires_at']) < time();
-            $isFree = $row['plan'] === 'basic' && $row['note'] === 'free';
-            if (!$isFree && !$expired) {
-                throw new InvalidArgumentException('This IP already has a paid license until ' . $row['expires_at'] . '.');
-            }
-            if ($isFree && $free === null) {
-                $free = $row;
+        $active = null;
+        foreach ($stmt->fetchAll() as $row) {
+            if (strtotime($row['expires_at']) >= time()) {
+                $active = $row;
+                break;
             }
         }
-        $expires = date('Y-m-d H:i:s', strtotime('+3 months'));
-        if ($free) {
-            $remaining = strtotime($free['expires_at']) - time();
-            if ($remaining > 14 * 86400) {
-                $public = license_public_row($free, $ip);
-                $public['ok'] = true;
-                $public['action'] = 'current';
-                $public['message'] = 'This server already has a free Basic license until ' . $free['expires_at'] . '. Renew it during the last 14 days.';
-                return $public;
-            }
-            if ($remaining > 0) {
-                $expires = date('Y-m-d H:i:s', strtotime($free['expires_at'] . ' +3 months'));
-            }
-            $row = renew_license($free['license_key'], $ip, $expires);
-            record_event($row['id'], null, 'free_renew', $ip, 'basic');
+        if ($active) {
+            $expires = date('Y-m-d H:i:s', strtotime($active['expires_at'] . ' +3 months'));
+            $row = renew_license($active['license_key'], $ip, $expires);
+            record_event($row['id'], null, 'free_renew', $ip, $row['plan']);
             $public = license_public_row($row, $ip);
             $public['action'] = 'renew';
-            $public['message'] = 'Free Basic license renewed until ' . $row['expires_at'] . '.';
+            $public['message'] = $public['plan_label'] . ' license renewed until ' . $row['expires_at'] . '.';
             return $public;
         }
+        $expires = date('Y-m-d H:i:s', strtotime('+3 months'));
         $row = create_license('basic', $ip, $expires, 'free');
         record_event($row['id'], null, 'free_generate', $ip, 'basic');
         $public = license_public_row($row, $ip);

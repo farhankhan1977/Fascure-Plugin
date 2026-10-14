@@ -47,7 +47,7 @@ Generate or renew, used by the store. Send `Authorization: Bearer <token>`.
 
 `expires_at` (`YYYY-MM-DD HH:MM:SS`) can be sent instead of `days`.
 
-Free Basic license, used by the WHM button. No token. The license is issued to the public IP that connects. It allows 1 account and 1 application for 3 months. The same server can renew it during the last 14 days, or after it expires. A click earlier than that returns the current key and does not extend it. An IP that already has an active paid license is refused.
+Free license request, used by the WHM button. No token. The license is tied to the public IP that connects. If that IP already has an active license, Basic or Standard, the same key and plan are renewed for 3 months. If no license for that IP is active, a new free Basic license is issued for 3 months. It allows 1 account and 1 application.
 
 `POST /api/free.php`
 

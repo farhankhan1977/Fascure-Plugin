@@ -138,12 +138,9 @@ print <<'HTML';
 <button type="submit">Save license key</button>
 </form>
 HTML
-my $paid = $license->{licensed} && ( $license->{plan} || '' ) =~ /\A(?:standard|enterprise)\z/;
-unless ($paid) {
-    my $free_label = ( $license->{plan} || '' ) eq 'basic' ? 'Renew free license' : 'Get free license';
-    print '<p>Basic is free for 3 months: 1 account and 1 application. The license is issued to this server\'s public IP. Renew it here every 3 months. The renewal is accepted during the last 14 days, and after the free license expires.</p>';
-    print '<form method="post"><input type="hidden" name="action" value="free"><button type="submit">' . esc($free_label) . '</button></form>';
-}
+my $free_label = $license->{licensed} ? 'Renew license' : 'Get free license';
+print '<p>Basic is free for 3 months: 1 account and 1 application. This request uses this server\'s public IP. An active Basic or Standard license for that IP is renewed for 3 months. If none is active, a new free Basic license is issued.</p>';
+print '<form method="post"><input type="hidden" name="action" value="free"><button type="submit">' . esc($free_label) . '</button></form>';
 print '</div>';
 
 if ( !$license->{licensed} ) {

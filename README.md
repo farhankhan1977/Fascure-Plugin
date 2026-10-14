@@ -33,7 +33,7 @@ The installer copies the plugin into cPanel, registers **Fascure Node.js App** i
 
 Purchase a license at [https://fascure-hosting.com](https://fascure-hosting.com). After checkout, paste the key in **WHM → Fascure Node.js App**.
 
-Basic is free for 3 months: 1 account and 1 application. In **WHM → Fascure Node.js App**, choose **Get free license**. The license server issues that key to the public IP that makes the request. Choose **Renew free license** every 3 months. Renewal is accepted during the last 14 days, and after the free license expires.
+Basic is free for 3 months: 1 account and 1 application. In **WHM → Fascure Node.js App**, choose **Get free license**. The request uses this server's public IP. If that IP already has an active license, Basic or Standard, the same license is renewed for 3 months. If none is active, a new free Basic license is issued.
 
 The license server at `https://plugin.fascure-hosting.com` must stay online. The plugin verifies the license key once a day, and it keeps working only while that check succeeds. The license server compares that connection's IP and the expiry date with the license. A different IP, an expired license, or a revoked license turns the plugin off.
 
