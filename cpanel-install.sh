@@ -15,8 +15,8 @@ REPO="${FASCURE_NODEAPPS_REPO:-https://github.com/farhankhan1977/Fascure-Plugin}
 REF="${FASCURE_NODEAPPS_REF:-main}"
 
 here="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)"
-if [[ -n "$here" && -f "$here/install-plugin.sh" && -f "$here/install.json" ]]; then
-    exec bash "$here/install-plugin.sh"
+if [[ -n "$here" && -f "$here/install-FS-plugin.sh" && -f "$here/install.json" ]]; then
+    exec bash "$here/install-FS-plugin.sh"
 fi
 
 if [[ "$REPO" == *"/OWNER/"* ]]; then
@@ -30,4 +30,4 @@ trap 'rm -rf "$tmp"' EXIT
 curl -fsSL "${REPO}/archive/refs/heads/${REF}.tar.gz" -o "$tmp/src.tar.gz"
 tar -xzf "$tmp/src.tar.gz" -C "$tmp"
 src="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
-bash "$src/install-plugin.sh"
+bash "$src/install-FS-plugin.sh"

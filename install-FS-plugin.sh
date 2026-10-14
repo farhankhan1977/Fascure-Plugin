@@ -1,8 +1,27 @@
 #!/bin/bash
-# Install the Node.js / Next.js cPanel plugin. Safe to run more than once.
+# Install Fascure Node.js App on a cPanel server. Safe to run more than once.
+#
+# From GitHub:
+#   curl -fsSL https://raw.githubusercontent.com/farhankhan1977/Fascure-Plugin/main/install-FS-plugin.sh | bash
+#
+# From a checkout of this repository:
+#   bash install-FS-plugin.sh
 set -euo pipefail
 
-SRC="$(cd "$(dirname "$0")" && pwd)"
+REPO="${FASCURE_NODEAPPS_REPO:-https://github.com/farhankhan1977/Fascure-Plugin}"
+REF="${FASCURE_NODEAPPS_REF:-main}"
+here="$(cd "$(dirname "$0")" 2>/dev/null && pwd || true)"
+if [[ -z "$here" || ! -f "$here/install.json" ]]; then
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+    curl -fsSL "${REPO}/archive/refs/heads/${REF}.tar.gz" -o "$tmp/src.tar.gz"
+    tar -xzf "$tmp/src.tar.gz" -C "$tmp"
+    src="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+    bash "$src/install-FS-plugin.sh"
+    exit 0
+fi
+
+SRC="$here"
 CPANEL_PLUGIN="/usr/local/cpanel/scripts/install_plugin"
 REGISTER="/usr/local/cpanel/bin/register_appconfig"
 

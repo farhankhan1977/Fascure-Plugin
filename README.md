@@ -18,13 +18,13 @@ Repository: https://github.com/farhankhan1977/Fascure-Plugin
 On the cPanel server, as root:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/farhankhan1977/Fascure-Plugin/main/cpanel-install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/farhankhan1977/Fascure-Plugin/main/install-FS-plugin.sh | bash
 ```
 
 From a clone of this repository:
 
 ```bash
-bash cpanel-install.sh
+bash install-FS-plugin.sh
 ```
 
 The installer copies the plugin into cPanel, registers **Fascure Node.js App** in WHM and in the Jupiter theme, and allows each hosting account to publish its own Apache Passenger configuration.
