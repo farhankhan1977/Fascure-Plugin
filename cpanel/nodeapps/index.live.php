@@ -40,7 +40,8 @@ function env_from_post($text)
             $env[$key] = $value;
         }
     }
-    return json_encode($env);
+    $json = json_encode($env, JSON_FORCE_OBJECT);
+    return ($json === false || $json === '[]') ? '{}' : $json;
 }
 
 function env_to_text($env)
@@ -242,6 +243,7 @@ foreach ($apps as $app) {
 <input type="text" name="startup" placeholder="app.js or server.js">
 <label>Environment variables</label>
 <textarea name="env" placeholder="API_URL=https://example.com"></textarea>
+<p class="muted">Optional. One NAME=value on each line. Leave this empty for the test application.</p>
 <label><input type="checkbox" name="scaffold" value="1" checked> Create starter files if they are missing</label>
 <div class="row"><button type="submit">Create</button></div>
 </form>

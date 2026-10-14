@@ -116,8 +116,9 @@ sub _run {
 
 sub _env {
     my ($json) = @_;
-    return {} unless defined $json && $json ne '';
+    return {} unless defined $json && $json ne '' && $json ne '[]' && $json ne 'null';
     my $data = eval { JSON::PP->new->utf8->decode($json) };
+    return {} if !$@ && ref $data eq 'ARRAY' && !@{$data};
     die "Environment variables must be valid JSON.\n" if $@ || ref $data ne 'HASH';
     return $data;
 }
